@@ -11,10 +11,10 @@ namespace analyzer {
 
 class MySQLAdapter : public DBAdapter {
 public:
-    MySQLAdapter(const std::string& host, const std::string& user, 
-                 const std::string& password, const std::string& dbname, 
+    MySQLAdapter(const std::string& host, const std::string& user,
+                 const std::string& password, const std::string& dbname,
                  int port = 3306);
-                 
+
     ~MySQLAdapter() override;
 
     void connect() override;
@@ -27,8 +27,12 @@ private:
     std::string user_;
     std::string password_;
     std::string dbname_;
-    int port_;
+    int   port_;
     MYSQL* conn_;
+
+    // Creates bench_kv table and seeds rows if empty.
+    // Called once at the end of connect().
+    void setup_schema();
 };
 
 } // namespace analyzer

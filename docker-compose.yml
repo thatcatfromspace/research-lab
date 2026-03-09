@@ -1,0 +1,49 @@
+version: "3.9"
+
+# ─── Research DB Analyzer — MySQL Bench Instance ─────────────────────────────
+# Start : docker compose up -d
+# Stop  : docker compose down
+# Nuke  : docker compose down -v   (removes data volume)
+# Logs  : docker compose logs -f mysql
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: research_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: bench
+      MYSQL_USER: bench
+      MYSQL_PASSWORD: benchpass
+    ports:
+      - "3306:3306"
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=256M
+      --max-connections=256
+      --innodb-flush-log-at-trx-commit=2
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "127.0.0.1",
+          "-u",
+          "bench",
+          "-pbenchpass",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    volumes:
+      - mysql_bench_data:/var/lib/mysql
+
+volumes:
+  mysql_bench_data:
+    driver: local

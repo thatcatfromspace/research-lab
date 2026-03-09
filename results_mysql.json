@@ -1,0 +1,20 @@
+{
+  "db_metrics": {
+    "mysql.Com_select": 7015,
+    "mysql.Com_update": 2986,
+    "mysql.Innodb_buffer_pool_read_requests": 102748,
+    "mysql.Innodb_buffer_pool_reads": 992,
+    "mysql.Innodb_rows_read": 10000,
+    "mysql.Innodb_rows_updated": 2986,
+    "mysql.Questions": 10036,
+    "mysql.Slow_queries": 0,
+    "mysql.Threads_connected": 1
+  },
+  "latency_stats": {
+    "avg_us": 906.9002,
+    "p50_us": 72,
+    "p95_us": 2945,
+    "p99_us": 3096
+  },
+  "throughput_ops": 1101.9916131881387
+}
