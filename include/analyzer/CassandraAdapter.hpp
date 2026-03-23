@@ -7,13 +7,14 @@
 // Forward declare DataStax structs
 typedef struct CassCluster_ CassCluster;
 typedef struct CassSession_ CassSession;
+typedef struct CassPrepared_ CassPrepared;
 
 namespace analyzer {
 
 class CassandraAdapter : public DBAdapter {
 public:
     // Takes a comma-separated list of contact points
-    CassandraAdapter(const std::string& contact_points);
+    explicit CassandraAdapter(const std::string& contact_points);
     ~CassandraAdapter() override;
 
     void connect() override;
@@ -25,6 +26,12 @@ private:
     std::string contact_points_;
     CassCluster* cluster_;
     CassSession* session_;
+
+    const CassPrepared* prepared_read_;
+    const CassPrepared* prepared_write_;
+
+    // Creates keyspace, table, and seeds initial data
+    void setup_schema();
 };
 
 } // namespace analyzer

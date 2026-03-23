@@ -150,39 +150,63 @@ MetricMap MySQLAdapter::collect_metrics() {
     MetricMap metrics;
     if (!conn_) return metrics;
 
-    if (mysql_query(conn_, "SHOW GLOBAL STATUS")) {
-        return metrics;
-    }
+    // 1. Collect Global Status metrics
+    if (mysql_query(conn_, "SHOW GLOBAL STATUS") == 0) {
+        MYSQL_RES* res = mysql_store_result(conn_);
+        if (res) {
+            static const std::set<std::string> wanted = {
+                "Threads_connected",
+                "Questions",
+                "Slow_queries",
+                "Com_select",
+                "Com_update",
+                "Innodb_buffer_pool_read_requests",
+                "Innodb_buffer_pool_reads",
+                "Innodb_rows_read",
+                "Innodb_rows_updated",
+                // Amplification metrics:
+                "Innodb_os_log_written",      // Bytes written to redo log
+                "Innodb_data_written",        // Bytes written to data files
+                "Innodb_dblwr_pages_written"  // Doublewrite buffer pages written
+            };
 
-    MYSQL_RES* res = mysql_store_result(conn_);
-    if (!res) return metrics;
-
-    // Metrics we care about for wire-latency analysis
-    static const std::set<std::string> wanted = {
-        "Threads_connected",
-        "Questions",
-        "Slow_queries",
-        "Com_select",
-        "Com_update",
-        "Innodb_buffer_pool_read_requests",
-        "Innodb_buffer_pool_reads",
-        "Innodb_rows_read",
-        "Innodb_rows_updated",
-    };
-
-    MYSQL_ROW row;
-    while ((row = mysql_fetch_row(res))) {
-        if (!row[0] || !row[1]) continue;
-        std::string key = row[0];
-        if (wanted.count(key)) {
-            try {
-                metrics["mysql." + key] = std::stoll(row[1]);
-            } catch (...) {
-                metrics["mysql." + key] = nullptr;
+            MYSQL_ROW row;
+            while ((row = mysql_fetch_row(res))) {
+                if (!row[0] || !row[1]) continue;
+                std::string key = row[0];
+                if (wanted.count(key)) {
+                    try {
+                        metrics["mysql." + key] = std::stoll(row[1]);
+                    } catch (...) {
+                        metrics["mysql." + key] = nullptr;
+                    }
+                }
             }
+            mysql_free_result(res);
         }
     }
-    mysql_free_result(res);
+
+    // 2. Collect Table Size metrics (Space Amplification footprint)
+    const char* size_query = 
+        "SELECT data_length, index_length "
+        "FROM information_schema.tables "
+        "WHERE table_schema = 'bench' AND table_name = 'bench_kv'";
+        
+    if (mysql_query(conn_, size_query) == 0) {
+        MYSQL_RES* res = mysql_store_result(conn_);
+        if (res) {
+            MYSQL_ROW row = mysql_fetch_row(res);
+            if (row && row[0] && row[1]) {
+                try {
+                    metrics["mysql.table_data_bytes"]  = std::stoll(row[0]);
+                    metrics["mysql.table_index_bytes"] = std::stoll(row[1]);
+                } catch (...) {
+                    // Ignore on parse failure
+                }
+            }
+            mysql_free_result(res);
+        }
+    }
 
     return metrics;
 }

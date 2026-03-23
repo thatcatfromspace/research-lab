@@ -21,6 +21,10 @@
 
 #include "analyzer/Analyzer.hpp"
 #include "analyzer/MySQLAdapter.hpp"
+#include "analyzer/PostgreSQLAdapter.hpp"
+#include "analyzer/RocksDBAdapter.hpp"
+#include "analyzer/CassandraAdapter.hpp"
+#include "analyzer/LevelDBAdapter.hpp"
 
 #include <cstring>
 #include <iomanip>
@@ -38,8 +42,8 @@ struct Config {
     std::string host     = "127.0.0.1";
     std::string user     = "bench";
     std::string password = "benchpass";
-    std::string dbname   = "bench";
-    int         port     = 3306;
+    std::string dbname   = "";       // filled per-adapter default if empty
+    int         port     = -1;    // -1 = use adapter default
     std::size_t ops      = 10'000;
     std::string json_out = "";   // filled from db_type if left empty
 };
@@ -47,16 +51,16 @@ struct Config {
 static void print_usage(const char* prog) {
     std::cerr
         << "\nUsage: " << prog << " [options]\n\n"
-        << "  --db       <type>   Database backend (default: mysql)\n"
+        << "  --db       <type>   Database backend: mysql, postgresql, rocksdb, cassandra, leveldb (default: mysql)\n"
         << "  --host     <host>   Host             (default: 127.0.0.1)\n"
         << "  --user     <user>   Username         (default: bench)\n"
         << "  --password <pass>   Password         (default: benchpass)\n"
-        << "  --dbname   <name>   Database name    (default: bench)\n"
+        << "  --dbname   <name>   DB name / Path   (mysql/pg/cas: 'bench', rocks/level: './[db]_data')\n"
         << "  --port     <port>   Port             (default: 3306)\n"
         << "  --ops      <n>      Operations       (default: 10000)\n"
         << "  --out      <file>   JSON output file (default: results_<db>.json)\n"
         << "  --help              Print this help\n\n"
-        << "Supported DB types: mysql\n\n";
+        << "Supported DB types: mysql, postgresql, rocksdb, cassandra, leveldb\n\n";
 }
 
 static Config parse_args(int argc, char* argv[]) {
@@ -84,6 +88,19 @@ static Config parse_args(int argc, char* argv[]) {
             print_usage(argv[0]);
             std::exit(1);
         }
+    }
+
+    // Apply adapter-specific defaults
+    if (cfg.port == -1) {
+        if      (cfg.db_type == "postgresql") cfg.port = 5432;
+        else if (cfg.db_type == "cassandra")  cfg.port = 9042;
+        else                                  cfg.port = 3306;
+    }
+    
+    if (cfg.dbname.empty()) {
+        if      (cfg.db_type == "rocksdb") cfg.dbname = "./rocksdb_data";
+        else if (cfg.db_type == "leveldb") cfg.dbname = "./leveldb_data";
+        else                               cfg.dbname = "bench";
     }
 
     if (cfg.json_out.empty())
@@ -163,9 +180,29 @@ make_adapter(const Config& cfg) {
         return std::make_unique<analyzer::MySQLAdapter>(
             cfg.host, cfg.user, cfg.password, cfg.dbname, cfg.port);
     }
-    // Future: postgresql, rocksdb, leveldb, cassandra
+    if (cfg.db_type == "postgresql") {
+        // ... (existing pg logic)
+        std::ostringstream ci;
+        ci << "host="     << cfg.host
+           << " port="    << cfg.port
+           << " user="    << cfg.user
+           << " password=" << cfg.password
+           << " dbname="  << cfg.dbname
+           << " connect_timeout=10";
+        return std::make_unique<analyzer::PostgreSQLAdapter>(ci.str());
+    }
+    if (cfg.db_type == "rocksdb") {
+        return std::make_unique<analyzer::RocksDBAdapter>(cfg.dbname);
+    }
+    if (cfg.db_type == "cassandra") {
+        return std::make_unique<analyzer::CassandraAdapter>(cfg.host);
+    }
+    if (cfg.db_type == "leveldb") {
+        return std::make_unique<analyzer::LevelDBAdapter>(cfg.dbname);
+    }
+    // Future expansion point
     throw std::invalid_argument("Unsupported db type: '" + cfg.db_type +
-                                "'  (supported: mysql)");
+                                "'  (supported: mysql, postgresql, rocksdb, cassandra, leveldb)");
 }
 
 // ─── main ────────────────────────────────────────────────────────────────────

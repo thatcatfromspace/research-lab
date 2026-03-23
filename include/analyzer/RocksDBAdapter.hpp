@@ -12,7 +12,7 @@ namespace analyzer {
 
 class RocksDBAdapter : public DBAdapter {
 public:
-    RocksDBAdapter(const std::string& db_path);
+    explicit RocksDBAdapter(const std::string& db_path);
     ~RocksDBAdapter() override;
 
     void connect() override;
@@ -23,6 +23,9 @@ public:
 private:
     std::string db_path_;
     rocksdb::DB* db_;
+
+    // Seeds initial data into the KV store
+    void setup_schema();
 };
 
 } // namespace analyzer

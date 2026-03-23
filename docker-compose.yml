@@ -1,22 +1,21 @@
-version: "3.9"
-
 # ─── Research DB Analyzer — MySQL Bench Instance ─────────────────────────────
 # Start : docker compose up -d
 # Stop  : docker compose down
-# Nuke  : docker compose down -v   (removes data volume)
-# Logs  : docker compose logs -f mysql
+# Nuke  : docker compose down -v   (removes data volumes)
+# Logs  : docker compose logs -f <service>
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
+  # ── MySQL 8.4 ──────────────────────────────────────────────────────────────
   mysql:
     image: mysql:8.4
     container_name: research_mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: bench
-      MYSQL_USER: bench
-      MYSQL_PASSWORD: benchpass
+      MYSQL_DATABASE:      bench
+      MYSQL_USER:          bench
+      MYSQL_PASSWORD:      benchpass
     ports:
       - "3306:3306"
     command: >
@@ -28,22 +27,69 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "127.0.0.1",
-          "-u",
-          "bench",
-          "-pbenchpass",
+          "CMD", "mysqladmin", "ping",
+          "-h", "127.0.0.1",
+          "-u", "bench", "-pbenchpass"
         ]
-      interval: 5s
-      timeout: 5s
-      retries: 15
+      interval:     5s
+      timeout:      5s
+      retries:      15
       start_period: 30s
     volumes:
       - mysql_bench_data:/var/lib/mysql
 
+  # ── PostgreSQL 17 ───────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17
+    container_name: research_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     bench
+      POSTGRES_PASSWORD: benchpass
+      POSTGRES_DB:       bench
+    ports:
+      - "5432:5432"
+    command: >
+      postgres
+        -c shared_buffers=256MB
+        -c max_connections=256
+        -c synchronous_commit=off
+        -c wal_level=minimal
+        -c max_wal_senders=0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench -d bench"]
+      interval:     5s
+      timeout:      5s
+      retries:      12
+      start_period: 15s
+    volumes:
+      - postgres_bench_data:/var/lib/postgresql/data
+
+  # ── Cassandra 4.1 ──────────────────────────────────────────────────────────
+  cassandra:
+    image: cassandra:4.1
+    container_name: research_cassandra
+    restart: unless-stopped
+    environment:
+      CASSANDRA_CLUSTER_NAME: "ResearchCluster"
+      CASSANDRA_DC: "dc1"
+      CASSANDRA_RACK: "rack1"
+      CASSANDRA_ENDPOINT_SNITCH: "GossipingPropertyFileSnitch"
+    ports:
+      - "9042:9042"
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces'"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - cassandra_bench_data:/var/lib/cassandra
+
 volumes:
   mysql_bench_data:
+    driver: local
+  postgres_bench_data:
+    driver: local
+  cassandra_bench_data:
     driver: local

@@ -12,7 +12,7 @@ namespace analyzer {
 
 class LevelDBAdapter : public DBAdapter {
 public:
-    LevelDBAdapter(const std::string& db_path);
+    explicit LevelDBAdapter(const std::string& db_path);
     ~LevelDBAdapter() override;
 
     void connect() override;
@@ -23,6 +23,9 @@ public:
 private:
     std::string db_path_;
     leveldb::DB* db_;
+
+    // Seeds initial data into the KV store
+    void setup_schema();
 };
 
 } // namespace analyzer
