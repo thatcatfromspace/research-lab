@@ -9,20 +9,15 @@
 
 namespace analyzer {
 
-// ─── Bench parameters ─────────────────────────────────────────────────────────
-static constexpr int  PG_SEED_ROWS  = 10'000;
-static constexpr int  PG_BATCH_SIZE = 500;
-static constexpr int  PG_READ_PCT   = 70;    // % of ops that are reads
+// ─── Bench parameters (defaults) ──────────────────────────────────────────────
+static constexpr int  PG_DEFAULT_BATCH_SIZE = 500;
 
 // Named prepared statements (created once in setup_schema)
 static constexpr const char* STMT_READ  = "bench_read";
 static constexpr const char* STMT_WRITE = "bench_write";
 
 // ─── Thread-local RNG ─────────────────────────────────────────────────────────
-static thread_local std::mt19937                       tl_rng{std::random_device{}()};
-static thread_local std::uniform_int_distribution<int>  key_dist{1, PG_SEED_ROWS};
-static thread_local std::uniform_int_distribution<int>  pct_dist{1, 100};
-static thread_local std::uniform_int_distribution<int>  val_dist{0, 999'999};
+static thread_local std::mt19937 tl_rng{std::random_device{}()};
 
 // ─── Constructor / Destructor ─────────────────────────────────────────────────
 
@@ -56,12 +51,14 @@ void PostgreSQLAdapter::connect() {
     setup_schema();
 }
 
+// ─── configure() ───────────────────────────────────────────────────────────────
+
+void PostgreSQLAdapter::configure(int read_pct, int row_count) {
+    read_pct_ = read_pct;
+    seed_rows_ = row_count;
+}
+
 // ─── setup_schema() ───────────────────────────────────────────────────────────
-// 1. Creates bench_kv table (if not exists)
-// 2. Seeds PG_SEED_ROWS rows (if table is empty)
-// 3. Prepares named statements for reads and writes
-//    Using server-side prepared statements avoids per-call parse/plan overhead,
-//    giving a cleaner picture of pure execution latency.
 
 void PostgreSQLAdapter::setup_schema() {
     // 1. Create table
@@ -80,18 +77,18 @@ void PostgreSQLAdapter::setup_schema() {
     long long cnt = std::stoll(PQgetvalue(res, 0, 0));
     PQclear(res);
 
-    if (cnt >= PG_SEED_ROWS) {
+    if (cnt >= seed_rows_) {
         std::cout << "[PostgreSQL] bench_kv already has " << cnt
                   << " rows — skipping seed.\n";
     } else {
-        std::cout << "[PostgreSQL] Seeding " << PG_SEED_ROWS
+        std::cout << "[PostgreSQL] Seeding " << seed_rows_
                   << " rows into bench_kv...\n";
 
         // Insert in batches using a VALUES list
-        for (int base = 1; base <= PG_SEED_ROWS; base += PG_BATCH_SIZE) {
+        for (int base = 1; base <= seed_rows_; base += PG_DEFAULT_BATCH_SIZE) {
             std::ostringstream oss;
             oss << "INSERT INTO bench_kv (id, val) VALUES ";
-            int end = std::min(base + PG_BATCH_SIZE - 1, PG_SEED_ROWS);
+            int end = std::min(base + PG_DEFAULT_BATCH_SIZE - 1, seed_rows_);
             for (int i = base; i <= end; ++i) {
                 if (i > base) oss << ',';
                 oss << '(' << i << ",'seed_" << i << "')";
@@ -106,8 +103,6 @@ void PostgreSQLAdapter::setup_schema() {
     }
 
     // 3. Prepare named statements
-    //    STMT_READ  : SELECT val FROM bench_kv WHERE id = $1
-    //    STMT_WRITE : UPDATE bench_kv SET val = $1 WHERE id = $2
     res = PQprepare(conn_, STMT_READ,
                     "SELECT val FROM bench_kv WHERE id = $1",
                     1, nullptr);
@@ -122,15 +117,16 @@ void PostgreSQLAdapter::setup_schema() {
 }
 
 // ─── perform_op() ─────────────────────────────────────────────────────────────
-// Uses server-side prepared statements for both read and write paths.
-// 70 % point-reads  : SELECT val FROM bench_kv WHERE id = $1
-// 30 % point-writes : UPDATE bench_kv SET val = $1 WHERE id = $2
 
 void PostgreSQLAdapter::perform_op() {
     if (!conn_) return;
 
-    int  key     = key_dist(tl_rng);
-    bool is_read = (pct_dist(tl_rng) <= PG_READ_PCT);
+    static thread_local std::uniform_int_distribution<int> key_dist;
+    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
+    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+
+    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
+    bool is_read = (pct_dist(tl_rng) <= read_pct_);
 
     char key_buf[24];
     snprintf(key_buf, sizeof(key_buf), "%d", key);
@@ -141,7 +137,6 @@ void PostgreSQLAdapter::perform_op() {
         const char* params[1] = { key_buf };
         res = PQexecPrepared(conn_, STMT_READ,
                              1, params, nullptr, nullptr, 0);
-        // PGRES_TUPLES_OK on hit, PGRES_TUPLES_OK with 0 rows on miss — both fine
     } else {
         char val_buf[32];
         snprintf(val_buf, sizeof(val_buf), "upd_%d", val_dist(tl_rng));
@@ -161,7 +156,11 @@ MetricMap PostgreSQLAdapter::collect_metrics() {
     MetricMap metrics;
     if (!conn_) return metrics;
 
-    // Per-database statistics
+    // Force flush stats to ensure we get results for the run that just finished
+    // Available in PG 16+. For older versions we can ignore the error.
+    PQclear(PQexec(conn_, "SELECT pg_stat_force_next_flush()"));
+
+    // 1. Per-database statistics
     const char* db_query =
         "SELECT xact_commit, xact_rollback, blks_read, blks_hit, "
         "       tup_returned, tup_fetched, tup_inserted, tup_updated "
@@ -185,7 +184,7 @@ MetricMap PostgreSQLAdapter::collect_metrics() {
     }
     PQclear(res);
 
-    // Buffer manager statistics
+    // 2. Buffer & Background statistics
     const char* bgw_query =
         "SELECT buffers_clean, buffers_checkpoint, buffers_backend "
         "FROM pg_stat_bgwriter";
@@ -198,6 +197,40 @@ MetricMap PostgreSQLAdapter::collect_metrics() {
         metrics["postgres.buffers_clean"]      = get(0);
         metrics["postgres.buffers_checkpoint"] = get(1);
         metrics["postgres.buffers_backend"]    = get(2);
+    }
+    PQclear(res);
+
+    // 3. Write Amplification (WAL)
+    res = PQexec(conn_, "SELECT wal_records, wal_fpi, wal_bytes FROM pg_stat_wal");
+    if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
+        auto get = [&](int col) -> MetricValue {
+            const char* val_str = PQgetvalue(res, 0, col);
+            try { return std::stoll(val_str); } catch (...) { return nullptr; }
+        };
+        metrics["postgres.wal_records"] = get(0);
+        metrics["postgres.wal_fpi"]     = get(1);
+        metrics["postgres.wal_bytes"]   = get(2);
+    }
+    PQclear(res);
+
+    // 4. Space Footprint & Table Stats
+    const char* table_query = 
+        "SELECT pg_table_size('bench_kv'), "
+        "       pg_total_relation_size('bench_kv'), "
+        "       n_tup_upd, n_tup_ins "
+        "FROM pg_stat_user_tables "
+        "WHERE relname = 'bench_kv'";
+        
+    res = PQexec(conn_, table_query);
+    if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
+        auto get = [&](int col) -> MetricValue {
+            const char* v = PQgetvalue(res, 0, col);
+            try { return std::stoll(v); } catch (...) { return nullptr; }
+        };
+        metrics["postgres.table_bytes"]       = get(0);
+        metrics["postgres.total_rel_bytes"]   = get(1);
+        metrics["postgres.table_tup_upd"]     = get(2);
+        metrics["postgres.table_tup_ins"]     = get(3);
     }
     PQclear(res);
 

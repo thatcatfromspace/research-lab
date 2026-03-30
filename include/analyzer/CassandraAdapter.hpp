@@ -18,6 +18,7 @@ public:
     ~CassandraAdapter() override;
 
     void connect() override;
+    void configure(int read_pct, int row_count) override;
     void perform_op() override;
     MetricMap collect_metrics() override;
     void disconnect() override;
@@ -32,6 +33,9 @@ private:
 
     // Creates keyspace, table, and seeds initial data
     void setup_schema();
+
+    int read_pct_ = 70;
+    int seed_rows_ = 10000;
 };
 
 } // namespace analyzer

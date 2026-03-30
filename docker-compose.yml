@@ -21,7 +21,7 @@ services:
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
-      --innodb-buffer-pool-size=256M
+      --innodb-buffer-pool-size=64M
       --max-connections=256
       --innodb-flush-log-at-trx-commit=2
     healthcheck:
@@ -51,7 +51,7 @@ services:
       - "5432:5432"
     command: >
       postgres
-        -c shared_buffers=256MB
+        -c shared_buffers=64MB
         -c max_connections=256
         -c synchronous_commit=off
         -c wal_level=minimal

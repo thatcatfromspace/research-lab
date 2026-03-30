@@ -16,6 +16,7 @@ public:
     ~LevelDBAdapter() override;
 
     void connect() override;
+    void configure(int read_pct, int row_count) override;
     void perform_op() override;
     MetricMap collect_metrics() override;
     void disconnect() override;
@@ -26,6 +27,9 @@ private:
 
     // Seeds initial data into the KV store
     void setup_schema();
+
+    int read_pct_ = 70;
+    int seed_rows_ = 10000;
 };
 
 } // namespace analyzer

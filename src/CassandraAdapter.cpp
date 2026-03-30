@@ -7,15 +7,10 @@
 
 namespace analyzer {
 
-// ─── Bench parameters ─────────────────────────────────────────────────────────
-static constexpr int CASS_SEED_ROWS = 10'000;
-static constexpr int CASS_READ_PCT  = 70;
-
 // ─── Thread-local RNG ─────────────────────────────────────────────────────────
-static thread_local std::mt19937                       tl_rng{std::random_device{}()};
-static thread_local std::uniform_int_distribution<int> key_dist{1, CASS_SEED_ROWS};
-static thread_local std::uniform_int_distribution<int> pct_dist{1, 100};
-static thread_local std::uniform_int_distribution<int> val_dist{0, 999'999};
+static thread_local std::mt19937 tl_rng{std::random_device{}()};
+
+// ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 CassandraAdapter::CassandraAdapter(const std::string& contact_points)
     : contact_points_(contact_points), 
@@ -51,6 +46,11 @@ void CassandraAdapter::connect() {
     cass_future_free(connect_future);
     
     setup_schema();
+}
+
+void CassandraAdapter::configure(int read_pct, int row_count) {
+    read_pct_ = read_pct;
+    seed_rows_ = row_count;
 }
 
 void CassandraAdapter::setup_schema() {
@@ -89,12 +89,12 @@ void CassandraAdapter::setup_schema() {
     cass_future_free(count_future);
     cass_statement_free(count_stmt);
 
-    if (count < CASS_SEED_ROWS) {
-        std::cout << "[Cassandra] Seeding " << CASS_SEED_ROWS << " rows...\n";
+    if (count < seed_rows_) {
+        std::cout << "[Cassandra] Seeding " << seed_rows_ << " rows...\n";
         const char* insert_query = "INSERT INTO bench.bench_kv (id, val) VALUES (?, ?)";
         CassStatement* insert_stmt = cass_statement_new(insert_query, 2);
         
-        for (int i = 1; i <= CASS_SEED_ROWS; ++i) {
+        for (int i = 1; i <= seed_rows_; ++i) {
             std::string v = "seed_" + std::to_string(i);
             cass_statement_bind_int32(insert_stmt, 0, i);
             cass_statement_bind_string(insert_stmt, 1, v.c_str());
@@ -129,8 +129,12 @@ void CassandraAdapter::setup_schema() {
 void CassandraAdapter::perform_op() {
     if (!session_) return;
 
-    int  key     = key_dist(tl_rng);
-    bool is_read = (pct_dist(tl_rng) <= CASS_READ_PCT);
+    static thread_local std::uniform_int_distribution<int> key_dist;
+    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
+    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+
+    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
+    bool is_read = (pct_dist(tl_rng) <= read_pct_);
 
     CassStatement* statement = nullptr;
 
@@ -157,13 +161,56 @@ MetricMap CassandraAdapter::collect_metrics() {
     MetricMap metrics;
     if (!session_) return metrics;
 
+    // 1. Driver-level metrics
     CassMetrics cass_metrics;
     cass_session_get_metrics(session_, &cass_metrics);
 
-    metrics["cassandra.request_mean_rate"]          = static_cast<double>(cass_metrics.requests.mean_rate);
-    metrics["cassandra.request_timeouts"]           = static_cast<long long>(cass_metrics.errors.request_timeouts);
-    metrics["cassandra.connection_timeouts"]        = static_cast<long long>(cass_metrics.errors.connection_timeouts);
-    metrics["cassandra.stats_total_connections"]    = static_cast<long long>(cass_metrics.stats.total_connections);
+    metrics["cassandra.driver_request_mean_rate"]   = static_cast<double>(cass_metrics.requests.mean_rate);
+    metrics["cassandra.driver_request_timeouts"]    = static_cast<long long>(cass_metrics.errors.request_timeouts);
+    metrics["cassandra.driver_total_connections"]   = static_cast<long long>(cass_metrics.stats.total_connections);
+
+    // 2. Server-side Disk Usage (Cassandra 4.0+)
+    const char* disk_query = 
+        "SELECT mebibytes "
+        "FROM system_views.disk_usage "
+        "WHERE keyspace_name = 'bench' AND table_name = 'bench_kv'";
+        
+    CassStatement* disk_stmt = cass_statement_new(disk_query, 0);
+    CassFuture* disk_future = cass_session_execute(session_, disk_stmt);
+    
+    if (cass_future_error_code(disk_future) == CASS_OK) {
+        const CassResult* res = cass_future_get_result(disk_future);
+        if (cass_result_row_count(res) > 0) {
+            const CassRow* row = cass_result_first_row(res);
+            cass_int64_t mib;
+            if (cass_value_get_int64(cass_row_get_column(row, 0), &mib) == CASS_OK) {
+                metrics["cassandra.disk_mebibytes"] = static_cast<long long>(mib);
+            }
+        }
+        cass_result_free(res);
+    }
+    cass_future_free(disk_future);
+    cass_statement_free(disk_stmt);
+
+    // 3. Pending Tasks (Compactions)
+    const char* task_query = 
+        "SELECT count(*) "
+        "FROM system_views.sstable_tasks "
+        "WHERE keyspace_name = 'bench' AND table_name = 'bench_kv'";
+        
+    CassStatement* task_stmt = cass_statement_new(task_query, 0);
+    CassFuture* task_future = cass_session_execute(session_, task_stmt);
+    if (cass_future_error_code(task_future) == CASS_OK) {
+        const CassResult* res = cass_future_get_result(task_future);
+        const CassRow* row = cass_result_first_row(res);
+        cass_int64_t tasks;
+        if (cass_value_get_int64(cass_row_get_column(row, 0), &tasks) == CASS_OK) {
+            metrics["cassandra.pending_tasks"] = static_cast<long long>(tasks);
+        }
+        cass_result_free(res);
+    }
+    cass_future_free(task_future);
+    cass_statement_free(task_stmt);
 
     return metrics;
 }

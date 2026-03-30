@@ -11,6 +11,10 @@ public:
         std::cout << "[Stub] Connecting..." << std::endl;
     }
 
+    void configure(int, int) override {
+        // No-op for stub
+    }
+
     void perform_op() override {
         // Simulate work (1ms)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -39,7 +43,9 @@ int main() {
 
     // Run 1000 operations
     std::cout << "Running workload..." << std::endl;
-    auto result = analyzer.run(1000);
+    analyzer::RunOptions options;
+    options.operation_count = 1000;
+    auto result = analyzer.run(options);
 
     // Save results
     std::string filename = "output.json";

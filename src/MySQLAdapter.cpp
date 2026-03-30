@@ -10,16 +10,11 @@
 
 namespace analyzer {
 
-// ─── Bench parameters ─────────────────────────────────────────────────────────
-static constexpr int  SEED_ROWS  = 10'000;   // rows pre-populated in bench_kv
-static constexpr int  BATCH_SIZE = 500;      // rows per INSERT batch
-static constexpr int  READ_PCT   = 70;       // % of ops that are reads
+// ─── Bench parameters (defaults) ──────────────────────────────────────────────
+static constexpr int  DEFAULT_BATCH_SIZE = 500;
 
 // ─── Thread-local RNG (safe for multi-threaded use without locking) ───────────
-static thread_local std::mt19937                      tl_rng{std::random_device{}()};
-static thread_local std::uniform_int_distribution<int> key_dist{1, SEED_ROWS};
-static thread_local std::uniform_int_distribution<int> pct_dist{1, 100};
-static thread_local std::uniform_int_distribution<int> val_dist{0, 999'999};
+static thread_local std::mt19937 tl_rng{std::random_device{}()};
 
 // ─── Constructor / Destructor ─────────────────────────────────────────────────
 
@@ -59,9 +54,15 @@ void MySQLAdapter::connect() {
     setup_schema();
 }
 
+// ─── configure() ───────────────────────────────────────────────────────────────
+
+void MySQLAdapter::configure(int read_pct, int row_count) {
+    read_pct_ = read_pct;
+    seed_rows_ = row_count;
+}
+
 // ─── setup_schema() ───────────────────────────────────────────────────────────
-// Creates the bench_kv table and seeds it with SEED_ROWS rows if it is empty.
-// This is called once per connect(), before the timed workload begins.
+// Creates the bench_kv table and seeds it with seed_rows_ rows if it is empty.
 
 void MySQLAdapter::setup_schema() {
     // 1. Create table
@@ -87,19 +88,19 @@ void MySQLAdapter::setup_schema() {
     long long  cnt = row ? std::stoll(row[0]) : 0;
     mysql_free_result(res);
 
-    if (cnt >= SEED_ROWS) {
+    if (cnt >= seed_rows_) {
         std::cout << "[MySQL] bench_kv already has " << cnt
                   << " rows — skipping seed.\n";
         return;
     }
 
     // 3. Seed rows in batches
-    std::cout << "[MySQL] Seeding " << SEED_ROWS << " rows into bench_kv...\n";
+    std::cout << "[MySQL] Seeding " << seed_rows_ << " rows into bench_kv...\n";
 
-    for (int base = 1; base <= SEED_ROWS; base += BATCH_SIZE) {
+    for (int base = 1; base <= seed_rows_; base += DEFAULT_BATCH_SIZE) {
         std::ostringstream oss;
         oss << "INSERT IGNORE INTO bench_kv (id, val) VALUES ";
-        int end = std::min(base + BATCH_SIZE - 1, SEED_ROWS);
+        int end = std::min(base + DEFAULT_BATCH_SIZE - 1, seed_rows_);
         for (int i = base; i <= end; ++i) {
             if (i > base) oss << ',';
             oss << '(' << i << ",'seed_" << i << "')";
@@ -116,14 +117,16 @@ void MySQLAdapter::setup_schema() {
 }
 
 // ─── perform_op() ─────────────────────────────────────────────────────────────
-// 70 % point-reads  : SELECT val FROM bench_kv WHERE id = <rand>
-// 30 % point-writes : UPDATE bench_kv SET val = <rand_str> WHERE id = <rand>
 
 void MySQLAdapter::perform_op() {
     if (!conn_) return;
 
-    int  key = key_dist(tl_rng);
-    bool is_read = (pct_dist(tl_rng) <= READ_PCT);
+    static thread_local std::uniform_int_distribution<int> key_dist;
+    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
+    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+
+    int  key = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
+    bool is_read = (pct_dist(tl_rng) <= read_pct_);
 
     char buf[192];
     int  len;

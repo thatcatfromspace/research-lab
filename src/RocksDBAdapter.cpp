@@ -8,15 +8,10 @@
 
 namespace analyzer {
 
-// ─── Bench parameters ─────────────────────────────────────────────────────────
-static constexpr int ROCKS_SEED_ROWS = 10'000;
-static constexpr int ROCKS_READ_PCT  = 70;
-
 // ─── Thread-local RNG ─────────────────────────────────────────────────────────
-static thread_local std::mt19937                       tl_rng{std::random_device{}()};
-static thread_local std::uniform_int_distribution<int> key_dist{1, ROCKS_SEED_ROWS};
-static thread_local std::uniform_int_distribution<int> pct_dist{1, 100};
-static thread_local std::uniform_int_distribution<int> val_dist{0, 999'999};
+static thread_local std::mt19937 tl_rng{std::random_device{}()};
+
+// ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 RocksDBAdapter::RocksDBAdapter(const std::string& db_path)
     : db_path_(db_path), db_(nullptr) {}
@@ -24,6 +19,8 @@ RocksDBAdapter::RocksDBAdapter(const std::string& db_path)
 RocksDBAdapter::~RocksDBAdapter() {
     disconnect();
 }
+
+// ─── connect() ────────────────────────────────────────────────────────────────
 
 void RocksDBAdapter::connect() {
     rocksdb::Options options;
@@ -41,10 +38,16 @@ void RocksDBAdapter::connect() {
     setup_schema();
 }
 
+// ─── configure() ───────────────────────────────────────────────────────────────
+
+void RocksDBAdapter::configure(int read_pct, int row_count) {
+    read_pct_ = read_pct;
+    seed_rows_ = row_count;
+}
+
+// ─── setup_schema() ───────────────────────────────────────────────────────────
+
 void RocksDBAdapter::setup_schema() {
-    // For RocksDB, "seeding" just means ensuring keys 1-10000 exist.
-    // We'll check if the DB is empty or just overwrite to ensure consistency.
-    
     std::string value;
     rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), "1", &value);
     
@@ -53,10 +56,10 @@ void RocksDBAdapter::setup_schema() {
         return;
     }
 
-    std::cout << "[RocksDB] Seeding " << ROCKS_SEED_ROWS << " keys into " << db_path_ << "...\n";
+    std::cout << "[RocksDB] Seeding " << seed_rows_ << " keys into " << db_path_ << "...\n";
     
     rocksdb::WriteBatch batch;
-    for (int i = 1; i <= ROCKS_SEED_ROWS; ++i) {
+    for (int i = 1; i <= seed_rows_; ++i) {
         std::string k = std::to_string(i);
         std::string v = "seed_" + k;
         batch.Put(k, v);
@@ -72,11 +75,17 @@ void RocksDBAdapter::setup_schema() {
     std::cout << "[RocksDB] Seed complete.\n";
 }
 
+// ─── perform_op() ─────────────────────────────────────────────────────────────
+
 void RocksDBAdapter::perform_op() {
     if (!db_) return;
 
-    int  key     = key_dist(tl_rng);
-    bool is_read = (pct_dist(tl_rng) <= ROCKS_READ_PCT);
+    static thread_local std::uniform_int_distribution<int> key_dist;
+    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
+    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+
+    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
+    bool is_read = (pct_dist(tl_rng) <= read_pct_);
     std::string k_str = std::to_string(key);
 
     if (is_read) {
@@ -94,7 +103,10 @@ MetricMap RocksDBAdapter::collect_metrics() {
 
     auto get_prop = [&](const std::string& prop, const std::string& metric_name) {
         std::string val;
-        if (db_->GetProperty(prop, &val)) {
+        uint64_t val_uint;
+        if (db_->GetIntProperty(prop, &val_uint)) {
+            metrics[metric_name] = static_cast<long long>(val_uint);
+        } else if (db_->GetProperty(prop, &val)) {
             try {
                 metrics[metric_name] = std::stoll(val);
             } catch (...) {
@@ -105,14 +117,24 @@ MetricMap RocksDBAdapter::collect_metrics() {
         }
     };
 
-    // RocksDB specific properties
-    get_prop("rocksdb.estimate-num-keys",         "rocksdb.estimated_keys");
-    get_prop("rocksdb.cur-size-all-mem-tables",   "rocksdb.memtable_bytes");
-    get_prop("rocksdb.num-immutable-mem-table",  "rocksdb.num_imm_memtables");
-    get_prop("rocksdb.num-live-versions",         "rocksdb.num_live_versions");
+    // 1. Basic Capacity & Memory
+    get_prop("rocksdb.estimate-num-keys",          "rocksdb.estimated_keys");
+    get_prop("rocksdb.cur-size-all-mem-tables",    "rocksdb.memtable_bytes");
+    get_prop("rocksdb.block-cache-usage",          "rocksdb.block_cache_bytes");
     get_prop("rocksdb.estimate-table-readers-mem", "rocksdb.index_filter_bytes");
-    get_prop("rocksdb.block-cache-usage",         "rocksdb.block_cache_bytes");
+
+    // 2. Space Amplification
+    get_prop("rocksdb.total-sst-files-size",       "rocksdb.total_sst_bytes");
+    get_prop("rocksdb.estimate-live-data-size",    "rocksdb.live_data_bytes");
     
+    // 3. Write Amplification (Compaction stats)
+    get_prop("rocksdb.compaction-pending",          "rocksdb.compaction_pending");
+    get_prop("rocksdb.background-errors",           "rocksdb.bg_errors");
+    
+    // Note: Compaction bytes are cumulative since DB open
+    // They give a clear picture of Write Amplification in LSM
+    get_prop("rocksdb.actual-delayed-write-rate",   "rocksdb.write_stall_rate");
+
     return metrics;
 }
 

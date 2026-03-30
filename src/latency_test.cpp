@@ -43,9 +43,12 @@ struct Config {
     std::string user     = "bench";
     std::string password = "benchpass";
     std::string dbname   = "";       // filled per-adapter default if empty
-    int         port     = -1;    // -1 = use adapter default
+    int         port     = -1;       // -1 = use adapter default
     std::size_t ops      = 10'000;
-    std::string json_out = "";   // filled from db_type if left empty
+    std::size_t duration = 0;        // 0 = use ops
+    int         read_pct = 70;
+    int         rows     = 10'000;
+    std::string json_out = "";       // filled from db_type if left empty
 };
 
 static void print_usage(const char* prog) {
@@ -58,9 +61,11 @@ static void print_usage(const char* prog) {
         << "  --dbname   <name>   DB name / Path   (mysql/pg/cas: 'bench', rocks/level: './[db]_data')\n"
         << "  --port     <port>   Port             (default: 3306)\n"
         << "  --ops      <n>      Operations       (default: 10000)\n"
+        << "  --duration <s>      Duration in secs (default: 0, overrides --ops if > 0)\n"
+        << "  --read-pct <%>      Read percentage  (default: 70)\n"
+        << "  --rows     <n>      Dataset size     (default: 10000)\n"
         << "  --out      <file>   JSON output file (default: results_<db>.json)\n"
-        << "  --help              Print this help\n\n"
-        << "Supported DB types: mysql, postgresql, rocksdb, cassandra, leveldb\n\n";
+        << "  --help              Print this help\n\n";
 }
 
 static Config parse_args(int argc, char* argv[]) {
@@ -81,6 +86,9 @@ static Config parse_args(int argc, char* argv[]) {
         else if (arg == "--dbname")   cfg.dbname   = next("--dbname");
         else if (arg == "--port")     cfg.port     = std::stoi(next("--port"));
         else if (arg == "--ops")      cfg.ops      = std::stoull(next("--ops"));
+        else if (arg == "--duration") cfg.duration = std::stoull(next("--duration"));
+        else if (arg == "--read-pct") cfg.read_pct = std::stoi(next("--read-pct"));
+        else if (arg == "--rows")     cfg.rows     = std::stoi(next("--rows"));
         else if (arg == "--out")      cfg.json_out = next("--out");
         else if (arg == "--help")   { print_usage(argv[0]); std::exit(0); }
         else {
@@ -140,7 +148,13 @@ static void print_report(const Config& cfg,
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "  Endpoint   : " << cfg.host << ":" << cfg.port
               << "  [" << cfg.dbname << "]\n";
-    std::cout << "  Operations : " << cfg.ops << "\n";
+    std::cout << "  Rows (Seed): " << cfg.rows << "\n";
+    if (cfg.duration > 0) {
+        std::cout << "  Duration   : " << cfg.duration << " s\n";
+    } else {
+        std::cout << "  Operations : " << cfg.ops << "\n";
+    }
+    std::cout << "  Read %     : " << cfg.read_pct << "\n";
     std::cout << "  Throughput : " << result.throughput_ops << " ops/s\n";
 
     sep();
@@ -224,14 +238,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    adapter->configure(cfg.read_pct, cfg.rows);
+
     analyzer::Analyzer bench(std::move(adapter));
 
     std::cout << "[latency_test] Connecting to " << cfg.db_type
               << " @ " << cfg.host << ":" << cfg.port << " ...\n";
 
     analyzer::RunResult result;
+    analyzer::RunOptions options;
+    options.operation_count = (cfg.duration > 0) ? 0 : cfg.ops;
+    options.duration_seconds = cfg.duration;
+
     try {
-        result = bench.run(cfg.ops);
+        result = bench.run(options);
     } catch (const std::exception& e) {
         std::cerr << "Benchmark error: " << e.what() << "\n";
         return 1;

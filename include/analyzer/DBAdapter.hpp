@@ -14,11 +14,13 @@ public:
     // Establish connection to the database
     virtual void connect() = 0;
 
+    // Configure workload parameters before setup (optional)
+    virtual void configure(int read_pct, int row_count) = 0;
+
     // Execute a workload operation (e.g., a simple read or write)
-    // The query payload is abstract for now, could be extended
     virtual void perform_op() = 0;
 
-    // Collect database-specific metrics (e.g., cache hits, disk I/O)
+    // Collect database-specific metrics
     virtual MetricMap collect_metrics() = 0;
 
     // Close connection and cleanup

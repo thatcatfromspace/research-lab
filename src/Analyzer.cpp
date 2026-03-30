@@ -9,38 +9,49 @@ namespace analyzer {
 Analyzer::Analyzer(std::unique_ptr<DBAdapter> adapter)
     : adapter_(std::move(adapter)) {}
 
-RunResult Analyzer::run(size_t operation_count) {
-  adapter_->connect();
+RunResult Analyzer::run(const RunOptions& options) {
+    adapter_->connect();
 
-  auto start_time = std::chrono::steady_clock::now();
+    auto start_time = std::chrono::steady_clock::now();
+    size_t count = 0;
 
-  for (size_t i = 0; i < operation_count; ++i) {
-    auto op_start = std::chrono::steady_clock::now();
-    adapter_->perform_op();
-    auto op_end = std::chrono::steady_clock::now();
+    auto should_continue = [&]() {
+        if (options.operation_count > 0) {
+            return count < options.operation_count;
+        } else if (options.duration_seconds > 0) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+            return static_cast<size_t>(elapsed) < options.duration_seconds;
+        }
+        return false;
+    };
 
-    auto latency_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(op_end - op_start)
-            .count();
-    stats_.add_latency(latency_us);
-  }
+    while (should_continue()) {
+        auto op_start = std::chrono::steady_clock::now();
+        adapter_->perform_op();
+        auto op_end = std::chrono::steady_clock::now();
 
-  auto end_time = std::chrono::steady_clock::now();
+        auto latency_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(op_end - op_start)
+                .count();
+        stats_.add_latency(latency_us);
+        count++;
+    }
 
-  // Calculate total duration in seconds for throughput
-  double total_duration_s =
-      std::chrono::duration<double>(end_time - start_time).count();
+    auto end_time = std::chrono::steady_clock::now();
+    double total_duration_s =
+        std::chrono::duration<double>(end_time - start_time).count();
 
-  // Collect DB-specific metrics
-  MetricMap db_metrics = adapter_->collect_metrics();
-  adapter_->disconnect();
+    // Collect DB-specific metrics
+    MetricMap db_metrics = adapter_->collect_metrics();
+    adapter_->disconnect();
 
-  RunResult result;
-  result.latency_stats = stats_.get_snapshot();
-  result.throughput_ops = operation_count / total_duration_s;
-  result.db_metrics = db_metrics;
+    RunResult result;
+    result.latency_stats = stats_.get_snapshot();
+    result.throughput_ops = (total_duration_s > 0) ? (count / total_duration_s) : 0;
+    result.db_metrics = db_metrics;
 
-  return result;
+    return result;
 }
 
 void Analyzer::save_json(const RunResult &result, const std::string &filename) {

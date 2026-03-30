@@ -17,6 +17,7 @@ public:
     ~PostgreSQLAdapter() override;
 
     void connect() override;
+    void configure(int read_pct, int row_count) override;
     void perform_op() override;
     MetricMap collect_metrics() override;
     void disconnect() override;
@@ -26,8 +27,10 @@ private:
     PGconn*     conn_;
 
     // Creates bench_kv table, seeds rows, and prepares named statements.
-    // Called once at the end of connect().
     void setup_schema();
+
+    int read_pct_ = 70;
+    int seed_rows_ = 10000;
 };
 
 } // namespace analyzer

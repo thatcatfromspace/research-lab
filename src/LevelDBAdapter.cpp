@@ -8,15 +8,10 @@
 
 namespace analyzer {
 
-// ─── Bench parameters ─────────────────────────────────────────────────────────
-static constexpr int LEVEL_SEED_ROWS = 10'000;
-static constexpr int LEVEL_READ_PCT  = 70;
-
 // ─── Thread-local RNG ─────────────────────────────────────────────────────────
-static thread_local std::mt19937                       tl_rng{std::random_device{}()};
-static thread_local std::uniform_int_distribution<int> key_dist{1, LEVEL_SEED_ROWS};
-static thread_local std::uniform_int_distribution<int> pct_dist{1, 100};
-static thread_local std::uniform_int_distribution<int> val_dist{0, 999'999};
+static thread_local std::mt19937 tl_rng{std::random_device{}()};
+
+// ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 LevelDBAdapter::LevelDBAdapter(const std::string& db_path)
     : db_path_(db_path), db_(nullptr) {}
@@ -24,6 +19,8 @@ LevelDBAdapter::LevelDBAdapter(const std::string& db_path)
 LevelDBAdapter::~LevelDBAdapter() {
     disconnect();
 }
+
+// ─── connect() ────────────────────────────────────────────────────────────────
 
 void LevelDBAdapter::connect() {
     leveldb::Options options;
@@ -37,6 +34,15 @@ void LevelDBAdapter::connect() {
     setup_schema();
 }
 
+// ─── configure() ───────────────────────────────────────────────────────────────
+
+void LevelDBAdapter::configure(int read_pct, int row_count) {
+    read_pct_ = read_pct;
+    seed_rows_ = row_count;
+}
+
+// ─── setup_schema() ───────────────────────────────────────────────────────────
+
 void LevelDBAdapter::setup_schema() {
     std::string value;
     leveldb::Status s = db_->Get(leveldb::ReadOptions(), "1", &value);
@@ -46,10 +52,10 @@ void LevelDBAdapter::setup_schema() {
         return;
     }
 
-    std::cout << "[LevelDB] Seeding " << LEVEL_SEED_ROWS << " keys into " << db_path_ << "...\n";
+    std::cout << "[LevelDB] Seeding " << seed_rows_ << " keys into " << db_path_ << "...\n";
     
     leveldb::WriteBatch batch;
-    for (int i = 1; i <= LEVEL_SEED_ROWS; ++i) {
+    for (int i = 1; i <= seed_rows_; ++i) {
         std::string k = std::to_string(i);
         std::string v = "seed_" + k;
         batch.Put(k, v);
@@ -64,11 +70,17 @@ void LevelDBAdapter::setup_schema() {
     std::cout << "[LevelDB] Seed complete.\n";
 }
 
+// ─── perform_op() ─────────────────────────────────────────────────────────────
+
 void LevelDBAdapter::perform_op() {
     if (!db_) return;
 
-    int  key     = key_dist(tl_rng);
-    bool is_read = (pct_dist(tl_rng) <= LEVEL_READ_PCT);
+    static thread_local std::uniform_int_distribution<int> key_dist;
+    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
+    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+
+    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
+    bool is_read = (pct_dist(tl_rng) <= read_pct_);
     std::string k_str = std::to_string(key);
 
     if (is_read) {
