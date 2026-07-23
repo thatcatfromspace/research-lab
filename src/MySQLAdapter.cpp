@@ -1,5 +1,12 @@
-#include "analyzer/MySQLAdapter.hpp"
+#if __has_include(<mysql/mysql.h>)
 #include <mysql/mysql.h>
+#elif __has_include(<mysql.h>)
+#include <mysql.h>
+#elif __has_include(<mariadb/mysql.h>)
+#include <mariadb/mysql.h>
+#else
+#include <mysql/mysql.h>
+#endif
 
 #include <iostream>
 #include <sstream>

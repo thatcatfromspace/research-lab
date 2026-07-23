@@ -22,7 +22,7 @@ sudo apt-get update
 sudo apt-get install -y cassandra
 
 echo "Installing C++ dependencies (RocksDB, LevelDB, MySQL, PostgreSQL, nlohmann-json)..."
-sudo apt-get install -y librocksdb-dev libleveldb-dev libmariadb-dev libpq-dev nlohmann-json3-dev
+sudo apt-get install -y librocksdb-dev libleveldb-dev default-libmysqlclient-dev libmysqlclient-dev libmariadb-dev libmariadb-dev-compat libpq-dev nlohmann-json3-dev
 
 echo "Building and installing DataStax Cassandra C++ Driver..."
 sudo apt-get install -y libuv1-dev libssl-dev zlib1g-dev
