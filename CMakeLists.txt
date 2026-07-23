@@ -25,13 +25,17 @@ target_link_libraries(analyzer_core
 )
 
 # ── MySQL adapter ─────────────────────────────────────────────────────────────
-# Requires: mariadb-libs (AUR) — provides libmariadb.so + mysql/mysql.h
+find_library(MYSQL_LIB NAMES mysqlclient mariadb libmysqlclient libmariadb)
+if(NOT MYSQL_LIB)
+    message(FATAL_ERROR "Neither libmysqlclient nor libmariadb library was found!")
+endif()
+
 add_library(adapter_mysql STATIC
     src/MySQLAdapter.cpp
 )
 target_link_libraries(adapter_mysql
     PUBLIC  analyzer_core
-    PRIVATE mariadb
+    PRIVATE ${MYSQL_LIB}
 )
 
 # ── PostgreSQL adapter ────────────────────────────────────────────────────────
