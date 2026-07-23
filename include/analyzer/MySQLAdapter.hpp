@@ -4,8 +4,13 @@
 #include "analyzer/DBAdapter.hpp"
 #include <string>
 
-// Forward declare MYSQL to avoid including mysql headers everywhere
-typedef struct st_mysql MYSQL;
+#if __has_include(<mysql/mysql.h>)
+#include <mysql/mysql.h>
+#elif __has_include(<mysql.h>)
+#include <mysql.h>
+#elif __has_include(<mariadb/mysql.h>)
+#include <mariadb/mysql.h>
+#endif
 
 namespace analyzer {
 
