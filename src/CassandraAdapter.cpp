@@ -80,23 +80,24 @@ void CassandraAdapter::setup_schema() {
               "  val TEXT"
               ")");
 
-    // 3. Seed checking
-    const char* count_query = "SELECT count(*) FROM bench.bench_kv";
-    CassStatement* count_stmt = cass_statement_new(count_query, 0);
-    CassFuture* count_future = cass_session_execute(session_, count_stmt);
-    cass_future_wait(count_future);
-    check_future(count_future, "Count query failed");
+    // 3. Seed checking via primary key lookup (avoids expensive full-table COUNT scan)
+    const char* check_query = "SELECT val FROM bench.bench_kv WHERE id = 1";
+    CassStatement* check_stmt = cass_statement_new(check_query, 0);
+    CassFuture* check_future = cass_session_execute(session_, check_stmt);
+    cass_future_wait(check_future);
     
-    const CassResult* result = cass_future_get_result(count_future);
-    const CassRow* row = cass_result_first_row(result);
-    cass_int64_t count;
-    cass_value_get_int64(cass_row_get_column(row, 0), &count);
-    
-    cass_result_free(result);
-    cass_future_free(count_future);
-    cass_statement_free(count_stmt);
+    bool data_exists = false;
+    if (cass_future_error_code(check_future) == CASS_OK) {
+        const CassResult* res = cass_future_get_result(check_future);
+        if (res && cass_result_row_count(res) > 0) {
+            data_exists = true;
+        }
+        if (res) cass_result_free(res);
+    }
+    cass_future_free(check_future);
+    cass_statement_free(check_stmt);
 
-    if (count < seed_rows_) {
+    if (!data_exists) {
         std::cout << "[Cassandra] Seeding " << seed_rows_ << " rows (async pipelined)...\n";
         
         // Prepare insert statement for fast execution
@@ -133,7 +134,7 @@ void CassandraAdapter::setup_schema() {
         cass_prepared_free(prepared);
         std::cout << "[Cassandra] Seed complete.\n";
     } else {
-        std::cout << "[Cassandra] Already has " << count << " rows -- skipping seed.\n";
+        std::cout << "[Cassandra] Data already exists -- skipping seed.\n";
     }
 
     // 4. Prepare statements
