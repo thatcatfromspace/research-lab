@@ -8,7 +8,7 @@
 #include <mysql/mysql.h>
 #endif
 
-#include "analyzer/Analyzer.hpp" 
+#include "analyzer/MySQLAdapter.hpp" 
 
 #include <iostream>
 #include <sstream>
