@@ -1,0 +1,327 @@
+{
+  "amplification": {
+    "read_amp": 0.0,
+    "space_amp": 0.0,
+    "write_amp": 0.0
+  },
+  "db_metrics": {
+    "rocksdb.bg_errors": 0,
+    "rocksdb.block_cache_bytes": 33400800,
+    "rocksdb.compaction_pending": 0,
+    "rocksdb.estimated_keys": 10391018,
+    "rocksdb.index_filter_bytes": 3296143,
+    "rocksdb.live_data_bytes": 540681704,
+    "rocksdb.memtable_bytes": 207363336,
+    "rocksdb.total_sst_bytes": 745009127,
+    "rocksdb.write_stall_rate": 0
+  },
+  "latency_stats": {
+    "avg_us": 8.954307428533967,
+    "p50_us": 7,
+    "p95_us": 20,
+    "p99_us": 29
+  },
+  "throughput_ops": 97056.76904957388,
+  "time_series": [
+    {
+      "elapsed_time_s": 1.00013188,
+      "latency_stats": {
+        "avg_us": 5.74644262295082,
+        "p50_us": 6,
+        "p95_us": 9,
+        "p99_us": 13
+      },
+      "throughput_ops": 121991.95975391653
+    },
+    {
+      "elapsed_time_s": 2.032616246,
+      "latency_stats": {
+        "avg_us": 5.790448717948718,
+        "p50_us": 6,
+        "p95_us": 9,
+        "p99_us": 12
+      },
+      "throughput_ops": 151091.87619408467
+    },
+    {
+      "elapsed_time_s": 3.075424154,
+      "latency_stats": {
+        "avg_us": 6.027150326797385,
+        "p50_us": 6,
+        "p95_us": 10,
+        "p99_us": 14
+      },
+      "throughput_ops": 146719.25560426418
+    },
+    {
+      "elapsed_time_s": 4.117134482,
+      "latency_stats": {
+        "avg_us": 7.116659090909091,
+        "p50_us": 7,
+        "p95_us": 10,
+        "p99_us": 14
+      },
+      "throughput_ops": 126714.68876902602
+    },
+    {
+      "elapsed_time_s": 5.152363394,
+      "latency_stats": {
+        "avg_us": 7.47928,
+        "p50_us": 7,
+        "p95_us": 11,
+        "p99_us": 15
+      },
+      "throughput_ops": 120746.24129122081
+    },
+    {
+      "elapsed_time_s": 6.185848262,
+      "latency_stats": {
+        "avg_us": 8.063760683760684,
+        "p50_us": 8,
+        "p95_us": 12,
+        "p99_us": 17
+      },
+      "throughput_ops": 113209.2047234503
+    },
+    {
+      "elapsed_time_s": 7.216879522,
+      "latency_stats": {
+        "avg_us": 8.522463636363636,
+        "p50_us": 8,
+        "p95_us": 12,
+        "p99_us": 18
+      },
+      "throughput_ops": 106689.2966950391
+    },
+    {
+      "elapsed_time_s": 8.245971157,
+      "latency_stats": {
+        "avg_us": 8.56390990990991,
+        "p50_us": 8,
+        "p95_us": 12,
+        "p99_us": 19
+      },
+      "throughput_ops": 107862.11472800477
+    },
+    {
+      "elapsed_time_s": 9.275696726,
+      "latency_stats": {
+        "avg_us": 8.651851851851852,
+        "p50_us": 8,
+        "p95_us": 12,
+        "p99_us": 19
+      },
+      "throughput_ops": 104882.31355164105
+    },
+    {
+      "elapsed_time_s": 10.304019035,
+      "latency_stats": {
+        "avg_us": 8.616576395011966,
+        "p50_us": 8,
+        "p95_us": 12,
+        "p99_us": 19
+      },
+      "throughput_ops": 84923.7629444447
+    },
+    {
+      "elapsed_time_s": 11.326766885,
+      "latency_stats": {
+        "avg_us": 7.190616,
+        "p50_us": 7,
+        "p95_us": 11,
+        "p99_us": 18
+      },
+      "throughput_ops": 122219.76316058743
+    },
+    {
+      "elapsed_time_s": 12.360184918,
+      "latency_stats": {
+        "avg_us": 7.253103174603175,
+        "p50_us": 7,
+        "p95_us": 12,
+        "p99_us": 21
+      },
+      "throughput_ops": 121925.4899532027
+    },
+    {
+      "elapsed_time_s": 13.394064951,
+      "latency_stats": {
+        "avg_us": 6.963946153846154,
+        "p50_us": 6,
+        "p95_us": 10,
+        "p99_us": 21
+      },
+      "throughput_ops": 124772.6969111512
+    },
+    {
+      "elapsed_time_s": 14.428975991,
+      "latency_stats": {
+        "avg_us": 6.942829457364341,
+        "p50_us": 6,
+        "p95_us": 11,
+        "p99_us": 22
+      },
+      "throughput_ops": 125614.6615268497
+    },
+    {
+      "elapsed_time_s": 15.463769046,
+      "latency_stats": {
+        "avg_us": 7.121453125,
+        "p50_us": 6,
+        "p95_us": 11,
+        "p99_us": 22
+      },
+      "throughput_ops": 123696.23025736291
+    },
+    {
+      "elapsed_time_s": 16.498499599,
+      "latency_stats": {
+        "avg_us": 7.49877868852459,
+        "p50_us": 7,
+        "p95_us": 12,
+        "p99_us": 24
+      },
+      "throughput_ops": 117905.09098845563
+    },
+    {
+      "elapsed_time_s": 17.541840358,
+      "latency_stats": {
+        "avg_us": 7.462666666666666,
+        "p50_us": 7,
+        "p95_us": 12,
+        "p99_us": 26
+      },
+      "throughput_ops": 117890.53474522605
+    },
+    {
+      "elapsed_time_s": 18.574958372,
+      "latency_stats": {
+        "avg_us": 7.186150793650794,
+        "p50_us": 6,
+        "p95_us": 11,
+        "p99_us": 28
+      },
+      "throughput_ops": 121960.89729590176
+    },
+    {
+      "elapsed_time_s": 19.608821254,
+      "latency_stats": {
+        "avg_us": 7.365322580645161,
+        "p50_us": 6,
+        "p95_us": 11,
+        "p99_us": 30
+      },
+      "throughput_ops": 119938.53552428822
+    },
+    {
+      "elapsed_time_s": 20.642419315,
+      "latency_stats": {
+        "avg_us": 11.868075234328776,
+        "p50_us": 7,
+        "p95_us": 29,
+        "p99_us": 35
+      },
+      "throughput_ops": 62138.274464119764
+    },
+    {
+      "elapsed_time_s": 21.658585309,
+      "latency_stats": {
+        "avg_us": 24.39185,
+        "p50_us": 26,
+        "p95_us": 32,
+        "p99_us": 43
+      },
+      "throughput_ops": 39363.64751052671
+    },
+    {
+      "elapsed_time_s": 22.66843075,
+      "latency_stats": {
+        "avg_us": 24.38425,
+        "p50_us": 26,
+        "p95_us": 32,
+        "p99_us": 43
+      },
+      "throughput_ops": 39610.02186670267
+    },
+    {
+      "elapsed_time_s": 23.678212778,
+      "latency_stats": {
+        "avg_us": 19.01735294117647,
+        "p50_us": 19,
+        "p95_us": 28,
+        "p99_us": 37
+      },
+      "throughput_ops": 50505.94938891109
+    },
+    {
+      "elapsed_time_s": 24.691068034,
+      "latency_stats": {
+        "avg_us": 14.034869565217392,
+        "p50_us": 14,
+        "p95_us": 19,
+        "p99_us": 30
+      },
+      "throughput_ops": 68124.24538575925
+    },
+    {
+      "elapsed_time_s": 25.709152657,
+      "latency_stats": {
+        "avg_us": 13.351069444444445,
+        "p50_us": 14,
+        "p95_us": 17,
+        "p99_us": 29
+      },
+      "throughput_ops": 70721.03671287843
+    },
+    {
+      "elapsed_time_s": 26.727811076,
+      "latency_stats": {
+        "avg_us": 13.50956338028169,
+        "p50_us": 14,
+        "p95_us": 17,
+        "p99_us": 29
+      },
+      "throughput_ops": 69699.5172039117
+    },
+    {
+      "elapsed_time_s": 27.746109774,
+      "latency_stats": {
+        "avg_us": 13.629422535211267,
+        "p50_us": 14,
+        "p95_us": 17,
+        "p99_us": 29
+      },
+      "throughput_ops": 69724.13903646178
+    },
+    {
+      "elapsed_time_s": 28.76424595,
+      "latency_stats": {
+        "avg_us": 13.551830985915492,
+        "p50_us": 14,
+        "p95_us": 17,
+        "p99_us": 29
+      },
+      "throughput_ops": 69735.26889000357
+    },
+    {
+      "elapsed_time_s": 29.782432515,
+      "latency_stats": {
+        "avg_us": 13.606704225352113,
+        "p50_us": 14,
+        "p95_us": 17,
+        "p99_us": 29
+      },
+      "throughput_ops": 69731.81776367282
+    },
+    {
+      "elapsed_time_s": 30.800640269,
+      "latency_stats": {
+        "avg_us": 13.639099229604266,
+        "p50_us": 14,
+        "p95_us": 17,
+        "p99_us": 29
+      },
+      "throughput_ops": 14915.423635636544
+    }
+  ]
+}

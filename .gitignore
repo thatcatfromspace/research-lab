@@ -4,7 +4,6 @@ build/
 
 leveldb_data/
 rocksdb_data/
-results_*.json
 
 research_docs/
 plots/
