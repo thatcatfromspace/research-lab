@@ -54,15 +54,28 @@ done
 
 if [ -n "$NVME_DEV" ]; then
     echo "Found local NVMe storage device: $NVME_DEV"
-    if ! blkid "$NVME_DEV" | grep -q "ext4"; then
-        echo "Formatting $NVME_DEV as ext4..."
-        sudo mkfs.ext4 -F "$NVME_DEV"
-    fi
 
-    sudo mkdir -p /mnt/nvme
-    if ! mountpoint -q /mnt/nvme; then
-        echo "Mounting $NVME_DEV at /mnt/nvme..."
-        sudo mount -o noatime,nodiratime "$NVME_DEV" /mnt/nvme
+    # Check if device is already mounted anywhere
+    CURRENT_MOUNT=$(findmnt -n -o TARGET "$NVME_DEV" || true)
+
+    if [ -n "$CURRENT_MOUNT" ]; then
+        echo "$NVME_DEV is already mounted at: $CURRENT_MOUNT"
+        if [ "$CURRENT_MOUNT" != "/mnt/nvme" ]; then
+            sudo mkdir -p /mnt/nvme
+            sudo mount --bind "$CURRENT_MOUNT" /mnt/nvme
+        fi
+    else
+        # Only format if not already formatted with ext4/xfs
+        if ! blkid "$NVME_DEV" | grep -qE "ext4|xfs"; then
+            echo "Formatting $NVME_DEV as ext4..."
+            sudo mkfs.ext4 -F "$NVME_DEV"
+        fi
+
+        sudo mkdir -p /mnt/nvme
+        if ! mountpoint -q /mnt/nvme; then
+            echo "Mounting $NVME_DEV at /mnt/nvme..."
+            sudo mount -o noatime,nodiratime "$NVME_DEV" /mnt/nvme
+        fi
     fi
 
     # Redirect DB data dirs to NVMe using mount --bind (avoids AppArmor symlink permission errors)
