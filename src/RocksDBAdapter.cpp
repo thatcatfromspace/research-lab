@@ -37,12 +37,12 @@ void RocksDBAdapter::connect() {
     options.IncreaseParallelism();
     options.OptimizeLevelStyleCompaction();
 
-    std::unique_ptr<rocksdb::DB> temp_db;
-    rocksdb::Status status = rocksdb::DB::Open(options, db_path_, &temp_db);
+    rocksdb::DB* raw_db = nullptr;
+    rocksdb::Status status = rocksdb::DB::Open(options, db_path_, &raw_db);
     if (!status.ok()) {
         throw std::runtime_error("RocksDB Open failed: " + status.ToString());
     }
-    db_ = std::shared_ptr<rocksdb::DB>(temp_db.release());
+    db_ = std::shared_ptr<rocksdb::DB>(raw_db);
 
     setup_schema();
 }
