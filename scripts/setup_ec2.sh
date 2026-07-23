@@ -65,32 +65,39 @@ if [ -n "$NVME_DEV" ]; then
         sudo mount -o noatime,nodiratime "$NVME_DEV" /mnt/nvme
     fi
 
-    # Redirect DB data dirs to NVMe
+    # Redirect DB data dirs to NVMe using mount --bind (avoids AppArmor symlink permission errors)
     sudo mkdir -p /mnt/nvme/mysql /mnt/nvme/postgresql /mnt/nvme/cassandra
     
-    # Stop services before relocating data dirs if active
+    # Stop services before relocating data dirs
     sudo systemctl stop mysql postgresql cassandra || true
-    
-    if [ ! -L /var/lib/mysql ] && [ -d /var/lib/mysql ]; then
-        sudo rsync -av /var/lib/mysql/ /mnt/nvme/mysql/
-        sudo rm -rf /var/lib/mysql
-        sudo ln -s /mnt/nvme/mysql /var/lib/mysql
-        sudo chown -R mysql:mysql /mnt/nvme/mysql
-    fi
 
-    if [ ! -L /var/lib/postgresql ] && [ -d /var/lib/postgresql ]; then
-        sudo rsync -av /var/lib/postgresql/ /mnt/nvme/postgresql/
-        sudo rm -rf /var/lib/postgresql
-        sudo ln -s /mnt/nvme/postgresql /var/lib/postgresql
-        sudo chown -R postgres:postgres /mnt/nvme/postgresql
-    fi
+    bind_to_nvme() {
+        local service_user="$1"
+        local service_dir="$2"
+        local nvme_target="$3"
 
-    if [ ! -L /var/lib/cassandra ] && [ -d /var/lib/cassandra ]; then
-        sudo rsync -av /var/lib/cassandra/ /mnt/nvme/cassandra/
-        sudo rm -rf /var/lib/cassandra
-        sudo ln -s /mnt/nvme/cassandra /var/lib/cassandra
-        sudo chown -R cassandra:cassandra /mnt/nvme/cassandra
-    fi
+        sudo mkdir -p "$nvme_target" "$service_dir"
+
+        if ! mountpoint -q "$service_dir"; then
+            # Copy existing initial database files if any exist
+            if [ -d "$service_dir" ] && [ "$(ls -A "$service_dir")" ]; then
+                sudo rsync -av "$service_dir/" "$nvme_target/"
+                sudo rm -rf "${service_dir:?}"/*
+            fi
+            sudo mount --bind "$nvme_target" "$service_dir"
+            
+            # Persist bind mount in /etc/fstab
+            if ! grep -q "$service_dir" /etc/fstab; then
+                echo "$nvme_target $service_dir none bind 0 0" | sudo tee -a /etc/fstab
+            fi
+        fi
+        sudo chown -R "$service_user":"$service_user" "$nvme_target" "$service_dir"
+        sudo chmod 750 "$service_dir" "$nvme_target"
+    }
+
+    bind_to_nvme mysql /var/lib/mysql /mnt/nvme/mysql
+    bind_to_nvme postgres /var/lib/postgresql /mnt/nvme/postgresql
+    bind_to_nvme cassandra /var/lib/cassandra /mnt/nvme/cassandra
 else
     echo "No unattached ephemeral NVMe storage found. Using root storage paths."
 fi
