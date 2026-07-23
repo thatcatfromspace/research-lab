@@ -47,8 +47,14 @@ struct Config {
     std::size_t ops      = 10'000;
     std::size_t duration = 0;        // 0 = use ops
     int         read_pct = 70;
+    int         write_pct= 30;
+    int         scan_pct = 0;
+    std::string distribution = "uniform"; // uniform or zipfian
     int         rows     = 10'000;
+    int         threads  = 1;
+    int         payload_size = 1024;
     std::string json_out = "";       // filled from db_type if left empty
+    bool        chaos    = false;    // 3-phase workload shifter
 };
 
 static void print_usage(const char* prog) {
@@ -63,7 +69,13 @@ static void print_usage(const char* prog) {
         << "  --ops      <n>      Operations       (default: 10000)\n"
         << "  --duration <s>      Duration in secs (default: 0, overrides --ops if > 0)\n"
         << "  --read-pct <%>      Read percentage  (default: 70)\n"
+        << "  --write-pct<%>      Write percentage (default: 30)\n"
+        << "  --scan-pct <%>      Scan percentage  (default: 0)\n"
+        << "  --dist     <type>   Distribution     (uniform, zipfian) (default: uniform)\n"
         << "  --rows     <n>      Dataset size     (default: 10000)\n"
+        << "  --threads  <n>      Number of workers(default: 1)\n"
+        << "  --payload-size <n>  Write payload    (default: 1024 bytes)\n"
+        << "  --chaos             Enable 3-phase workload shifter\n"
         << "  --out      <file>   JSON output file (default: results_<db>.json)\n"
         << "  --help              Print this help\n\n";
 }
@@ -88,7 +100,13 @@ static Config parse_args(int argc, char* argv[]) {
         else if (arg == "--ops")      cfg.ops      = std::stoull(next("--ops"));
         else if (arg == "--duration") cfg.duration = std::stoull(next("--duration"));
         else if (arg == "--read-pct") cfg.read_pct = std::stoi(next("--read-pct"));
+        else if (arg == "--write-pct")cfg.write_pct= std::stoi(next("--write-pct"));
+        else if (arg == "--scan-pct") cfg.scan_pct = std::stoi(next("--scan-pct"));
+        else if (arg == "--dist")     cfg.distribution = next("--dist");
         else if (arg == "--rows")     cfg.rows     = std::stoi(next("--rows"));
+        else if (arg == "--threads")  cfg.threads  = std::stoi(next("--threads"));
+        else if (arg == "--payload-size") cfg.payload_size = std::stoi(next("--payload-size"));
+        else if (arg == "--chaos")    cfg.chaos    = true;
         else if (arg == "--out")      cfg.json_out = next("--out");
         else if (arg == "--help")   { print_usage(argv[0]); std::exit(0); }
         else {
@@ -149,6 +167,8 @@ static void print_report(const Config& cfg,
     std::cout << "  Endpoint   : " << cfg.host << ":" << cfg.port
               << "  [" << cfg.dbname << "]\n";
     std::cout << "  Rows (Seed): " << cfg.rows << "\n";
+    std::cout << "  Threads    : " << cfg.threads << "\n";
+    std::cout << "  Payload    : " << cfg.payload_size << " bytes\n";
     if (cfg.duration > 0) {
         std::cout << "  Duration   : " << cfg.duration << " s\n";
     } else {
@@ -247,8 +267,45 @@ int main(int argc, char* argv[]) {
 
     analyzer::RunResult result;
     analyzer::RunOptions options;
-    options.operation_count = (cfg.duration > 0) ? 0 : cfg.ops;
-    options.duration_seconds = cfg.duration;
+    options.row_count = cfg.rows;
+    options.thread_count = cfg.threads;
+    options.payload_size = cfg.payload_size;
+
+    if (cfg.chaos) {
+        analyzer::Phase p1, p2, p3;
+        
+        p1.duration_seconds = 10;
+        p1.read_pct = 90;
+        p1.write_pct = 10;
+        p1.distribution = analyzer::Distribution::UNIFORM;
+        
+        p2.duration_seconds = 10;
+        p2.read_pct = 10;
+        p2.write_pct = 90;
+        p2.distribution = analyzer::Distribution::ZIPFIAN;
+        
+        p3.duration_seconds = 10;
+        p3.read_pct = 90;
+        p3.write_pct = 10;
+        p3.distribution = analyzer::Distribution::UNIFORM;
+        
+        options.phases.push_back(p1);
+        options.phases.push_back(p2);
+        options.phases.push_back(p3);
+    } else {
+        analyzer::Phase p;
+        p.operation_count = (cfg.duration > 0) ? 0 : cfg.ops;
+        p.duration_seconds = cfg.duration;
+        p.read_pct = cfg.read_pct;
+        p.write_pct = cfg.write_pct;
+        p.scan_pct = cfg.scan_pct;
+        if (cfg.distribution == "zipfian") {
+            p.distribution = analyzer::Distribution::ZIPFIAN;
+        } else {
+            p.distribution = analyzer::Distribution::UNIFORM;
+        }
+        options.phases.push_back(p);
+    }
 
     try {
         result = bench.run(options);

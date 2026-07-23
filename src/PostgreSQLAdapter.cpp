@@ -28,6 +28,13 @@ PostgreSQLAdapter::~PostgreSQLAdapter() {
     disconnect();
 }
 
+std::unique_ptr<DBAdapter> PostgreSQLAdapter::clone_connection() {
+    auto clone = std::make_unique<PostgreSQLAdapter>(conninfo_);
+    clone->connect();
+    clone->configure(read_pct_, seed_rows_);
+    return clone;
+}
+
 // ─── Helper: check a PGresult, throw on failure ───────────────────────────────
 static void check(PGresult* res, ExecStatusType expected, const char* ctx, PGconn* conn) {
     if (PQresultStatus(res) != expected) {
@@ -116,35 +123,32 @@ void PostgreSQLAdapter::setup_schema() {
     PQclear(res);
 }
 
-// ─── perform_op() ─────────────────────────────────────────────────────────────
-
-void PostgreSQLAdapter::perform_op() {
+void PostgreSQLAdapter::perform_read(int key) {
     if (!conn_) return;
-
-    static thread_local std::uniform_int_distribution<int> key_dist;
-    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
-    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
-
-    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
-    bool is_read = (pct_dist(tl_rng) <= read_pct_);
-
     char key_buf[24];
     snprintf(key_buf, sizeof(key_buf), "%d", key);
+    const char* params[1] = { key_buf };
+    PGresult* res = PQexecPrepared(conn_, STMT_READ, 1, params, nullptr, nullptr, 0);
+    if (res) PQclear(res);
+}
 
-    PGresult* res = nullptr;
+void PostgreSQLAdapter::perform_write(int key, const std::string& value) {
+    if (!conn_) return;
+    char key_buf[24];
+    snprintf(key_buf, sizeof(key_buf), "%d", key);
+    
+    // In setup_schema, STMT_WRITE is an UPDATE. To handle both, we might want to do UPSERT
+    // For now we'll just execute the UPDATE.
+    const char* params[2] = { value.c_str(), key_buf };
+    PGresult* res = PQexecPrepared(conn_, STMT_WRITE, 2, params, nullptr, nullptr, 0);
+    if (res) PQclear(res);
+}
 
-    if (is_read) {
-        const char* params[1] = { key_buf };
-        res = PQexecPrepared(conn_, STMT_READ,
-                             1, params, nullptr, nullptr, 0);
-    } else {
-        char val_buf[32];
-        snprintf(val_buf, sizeof(val_buf), "upd_%d", val_dist(tl_rng));
-        const char* params[2] = { val_buf, key_buf };
-        res = PQexecPrepared(conn_, STMT_WRITE,
-                             2, params, nullptr, nullptr, 0);
-    }
-
+void PostgreSQLAdapter::perform_scan(int start_key, int count) {
+    if (!conn_) return;
+    char query[256];
+    snprintf(query, sizeof(query), "SELECT val FROM bench_kv WHERE id >= %d ORDER BY id ASC LIMIT %d", start_key, count);
+    PGresult* res = PQexec(conn_, query);
     if (res) PQclear(res);
 }
 

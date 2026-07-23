@@ -17,9 +17,13 @@ public:
     explicit CassandraAdapter(const std::string& contact_points);
     ~CassandraAdapter() override;
 
+    std::unique_ptr<DBAdapter> clone_connection() override;
+
     void connect() override;
     void configure(int read_pct, int row_count) override;
-    void perform_op() override;
+    void perform_read(int key) override;
+    void perform_write(int key, const std::string& value) override;
+    void perform_scan(int start_key, int count) override;
     MetricMap collect_metrics() override;
     void disconnect() override;
 

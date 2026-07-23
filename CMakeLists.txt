@@ -9,6 +9,11 @@ find_package(nlohmann_json REQUIRED)
 
 include_directories(include)
 
+# macOS Homebrew Paths
+if(APPLE)
+    include_directories(/opt/homebrew/include /opt/homebrew/opt/libpq/include /opt/homebrew/opt/mariadb/include/mysql)
+    link_directories(/opt/homebrew/lib /opt/homebrew/opt/libpq/lib /opt/homebrew/opt/mariadb/lib)
+endif()
 # ── Core analysis engine (no DB-specific deps) ────────────────────────────────
 add_library(analyzer_core STATIC
     src/Analyzer.cpp

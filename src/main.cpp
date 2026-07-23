@@ -7,6 +7,10 @@ namespace analyzer {
 
 class StubAdapter : public DBAdapter {
 public:
+    std::unique_ptr<DBAdapter> clone_connection() override {
+        return std::make_unique<StubAdapter>();
+    }
+
     void connect() override {
         std::cout << "[Stub] Connecting..." << std::endl;
     }
@@ -15,9 +19,16 @@ public:
         // No-op for stub
     }
 
-    void perform_op() override {
-        // Simulate work (1ms)
+    void perform_read(int) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    void perform_write(int, const std::string&) override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    void perform_scan(int, int) override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
     MetricMap collect_metrics() override {
@@ -44,7 +55,11 @@ int main() {
     // Run 1000 operations
     std::cout << "Running workload..." << std::endl;
     analyzer::RunOptions options;
-    options.operation_count = 1000;
+    analyzer::Phase p;
+    p.operation_count = 1000;
+    p.read_pct = 80;
+    p.write_pct = 20;
+    options.phases.push_back(p);
     auto result = analyzer.run(options);
 
     // Save results

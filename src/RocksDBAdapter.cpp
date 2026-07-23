@@ -16,6 +16,13 @@ static thread_local std::mt19937 tl_rng{std::random_device{}()};
 RocksDBAdapter::RocksDBAdapter(const std::string& db_path)
     : db_path_(db_path), db_(nullptr) {}
 
+RocksDBAdapter::RocksDBAdapter(const std::string& db_path, std::shared_ptr<rocksdb::DB> db, int read_pct, int seed_rows)
+    : db_path_(db_path), db_(db), read_pct_(read_pct), seed_rows_(seed_rows) {}
+
+std::unique_ptr<DBAdapter> RocksDBAdapter::clone_connection() {
+    return std::make_unique<RocksDBAdapter>(db_path_, db_, read_pct_, seed_rows_);
+}
+
 RocksDBAdapter::~RocksDBAdapter() {
     disconnect();
 }
@@ -30,10 +37,12 @@ void RocksDBAdapter::connect() {
     options.IncreaseParallelism();
     options.OptimizeLevelStyleCompaction();
 
-    rocksdb::Status status = rocksdb::DB::Open(options, db_path_, &db_);
+    std::unique_ptr<rocksdb::DB> temp_db;
+    rocksdb::Status status = rocksdb::DB::Open(options, db_path_, &temp_db);
     if (!status.ok()) {
         throw std::runtime_error("RocksDB Open failed: " + status.ToString());
     }
+    db_ = std::shared_ptr<rocksdb::DB>(temp_db.release());
 
     setup_schema();
 }
@@ -75,26 +84,25 @@ void RocksDBAdapter::setup_schema() {
     std::cout << "[RocksDB] Seed complete.\n";
 }
 
-// ─── perform_op() ─────────────────────────────────────────────────────────────
-
-void RocksDBAdapter::perform_op() {
+void RocksDBAdapter::perform_read(int key) {
     if (!db_) return;
+    std::string val;
+    db_->Get(rocksdb::ReadOptions(), std::to_string(key), &val);
+}
 
-    static thread_local std::uniform_int_distribution<int> key_dist;
-    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
-    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+void RocksDBAdapter::perform_write(int key, const std::string& value) {
+    if (!db_) return;
+    db_->Put(rocksdb::WriteOptions(), std::to_string(key), value);
+}
 
-    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
-    bool is_read = (pct_dist(tl_rng) <= read_pct_);
-    std::string k_str = std::to_string(key);
-
-    if (is_read) {
-        std::string val;
-        db_->Get(rocksdb::ReadOptions(), k_str, &val);
-    } else {
-        std::string v_str = "upd_" + std::to_string(val_dist(tl_rng));
-        db_->Put(rocksdb::WriteOptions(), k_str, v_str);
+void RocksDBAdapter::perform_scan(int start_key, int count) {
+    if (!db_) return;
+    rocksdb::Iterator* it = db_->NewIterator(rocksdb::ReadOptions());
+    it->Seek(std::to_string(start_key));
+    for (int i = 0; i < count && it->Valid(); ++i) {
+        it->Next();
     }
+    delete it;
 }
 
 MetricMap RocksDBAdapter::collect_metrics() {
@@ -140,8 +148,7 @@ MetricMap RocksDBAdapter::collect_metrics() {
 
 void RocksDBAdapter::disconnect() {
     if (db_) {
-        delete db_;
-        db_ = nullptr;
+        db_.reset();
     }
 }
 

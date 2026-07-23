@@ -23,6 +23,13 @@ CassandraAdapter::~CassandraAdapter() {
     disconnect();
 }
 
+std::unique_ptr<DBAdapter> CassandraAdapter::clone_connection() {
+    auto clone = std::make_unique<CassandraAdapter>(contact_points_);
+    clone->connect();
+    clone->configure(read_pct_, seed_rows_);
+    return clone;
+}
+
 static void check_future(CassFuture* future, const std::string& msg) {
     if (cass_future_error_code(future) != CASS_OK) {
         const char* message;
@@ -126,33 +133,36 @@ void CassandraAdapter::setup_schema() {
     prepared_write_ = prepare("UPDATE bench.bench_kv SET val = ? WHERE id = ?");
 }
 
-void CassandraAdapter::perform_op() {
+void CassandraAdapter::perform_read(int key) {
     if (!session_) return;
-
-    static thread_local std::uniform_int_distribution<int> key_dist;
-    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
-    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
-
-    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
-    bool is_read = (pct_dist(tl_rng) <= read_pct_);
-
-    CassStatement* statement = nullptr;
-
-    if (is_read) {
-        statement = cass_prepared_bind(prepared_read_);
-        cass_statement_bind_int32(statement, 0, key);
-    } else {
-        std::string v = "upd_" + std::to_string(val_dist(tl_rng));
-        statement = cass_prepared_bind(prepared_write_);
-        cass_statement_bind_string(statement, 0, v.c_str());
-        cass_statement_bind_int32(statement, 1, key);
-    }
-
+    CassStatement* statement = cass_prepared_bind(prepared_read_);
+    cass_statement_bind_int32(statement, 0, key);
     CassFuture* future = cass_session_execute(session_, statement);
-    cass_future_wait(future); // Sync for latency measurement
-    
-    // We don't throw on per-op errors to keep the bench running, 
-    // but in a real app we would.
+    cass_future_wait(future);
+    cass_future_free(future);
+    cass_statement_free(statement);
+}
+
+void CassandraAdapter::perform_write(int key, const std::string& value) {
+    if (!session_) return;
+    CassStatement* statement = cass_prepared_bind(prepared_write_);
+    cass_statement_bind_string(statement, 0, value.c_str());
+    cass_statement_bind_int32(statement, 1, key);
+    CassFuture* future = cass_session_execute(session_, statement);
+    cass_future_wait(future);
+    cass_future_free(future);
+    cass_statement_free(statement);
+}
+
+void CassandraAdapter::perform_scan(int start_key, int count) {
+    // Cassandra doesn't do great with sequential range scans without partition keys,
+    // but we can simulate it with multiple reads or an IN clause if prepared,
+    // or just execute a raw query.
+    if (!session_) return;
+    std::string query = "SELECT val FROM bench.bench_kv WHERE id >= " + std::to_string(start_key) + " LIMIT " + std::to_string(count) + " ALLOW FILTERING";
+    CassStatement* statement = cass_statement_new(query.c_str(), 0);
+    CassFuture* future = cass_session_execute(session_, statement);
+    cass_future_wait(future);
     cass_future_free(future);
     cass_statement_free(statement);
 }

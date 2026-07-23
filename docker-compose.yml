@@ -17,7 +17,7 @@ services:
       MYSQL_USER:          bench
       MYSQL_PASSWORD:      benchpass
     ports:
-      - "3306:3306"
+      - "3307:3306"
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
@@ -48,7 +48,7 @@ services:
       POSTGRES_PASSWORD: benchpass
       POSTGRES_DB:       bench
     ports:
-      - "5432:5432"
+      - "5433:5432"
     command: >
       postgres
         -c shared_buffers=64MB

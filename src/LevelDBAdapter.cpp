@@ -16,6 +16,13 @@ static thread_local std::mt19937 tl_rng{std::random_device{}()};
 LevelDBAdapter::LevelDBAdapter(const std::string& db_path)
     : db_path_(db_path), db_(nullptr) {}
 
+LevelDBAdapter::LevelDBAdapter(const std::string& db_path, std::shared_ptr<leveldb::DB> db, int read_pct, int seed_rows)
+    : db_path_(db_path), db_(db), read_pct_(read_pct), seed_rows_(seed_rows) {}
+
+std::unique_ptr<DBAdapter> LevelDBAdapter::clone_connection() {
+    return std::make_unique<LevelDBAdapter>(db_path_, db_, read_pct_, seed_rows_);
+}
+
 LevelDBAdapter::~LevelDBAdapter() {
     disconnect();
 }
@@ -26,10 +33,12 @@ void LevelDBAdapter::connect() {
     leveldb::Options options;
     options.create_if_missing = true;
     
-    leveldb::Status status = leveldb::DB::Open(options, db_path_, &db_);
+    leveldb::DB* temp_db = nullptr;
+    leveldb::Status status = leveldb::DB::Open(options, db_path_, &temp_db);
     if (!status.ok()) {
         throw std::runtime_error("LevelDB Open failed: " + status.ToString());
     }
+    db_ = std::shared_ptr<leveldb::DB>(temp_db);
 
     setup_schema();
 }
@@ -70,26 +79,25 @@ void LevelDBAdapter::setup_schema() {
     std::cout << "[LevelDB] Seed complete.\n";
 }
 
-// ─── perform_op() ─────────────────────────────────────────────────────────────
-
-void LevelDBAdapter::perform_op() {
+void LevelDBAdapter::perform_read(int key) {
     if (!db_) return;
+    std::string val;
+    db_->Get(leveldb::ReadOptions(), std::to_string(key), &val);
+}
 
-    static thread_local std::uniform_int_distribution<int> key_dist;
-    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
-    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+void LevelDBAdapter::perform_write(int key, const std::string& value) {
+    if (!db_) return;
+    db_->Put(leveldb::WriteOptions(), std::to_string(key), value);
+}
 
-    int  key     = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
-    bool is_read = (pct_dist(tl_rng) <= read_pct_);
-    std::string k_str = std::to_string(key);
-
-    if (is_read) {
-        std::string val;
-        db_->Get(leveldb::ReadOptions(), k_str, &val);
-    } else {
-        std::string v_str = "upd_" + std::to_string(val_dist(tl_rng));
-        db_->Put(leveldb::WriteOptions(), k_str, v_str);
+void LevelDBAdapter::perform_scan(int start_key, int count) {
+    if (!db_) return;
+    leveldb::Iterator* it = db_->NewIterator(leveldb::ReadOptions());
+    it->Seek(std::to_string(start_key));
+    for (int i = 0; i < count && it->Valid(); ++i) {
+        it->Next();
     }
+    delete it;
 }
 
 MetricMap LevelDBAdapter::collect_metrics() {
@@ -124,8 +132,7 @@ MetricMap LevelDBAdapter::collect_metrics() {
 
 void LevelDBAdapter::disconnect() {
     if (db_) {
-        delete db_;
-        db_ = nullptr;
+        db_.reset();
     }
 }
 

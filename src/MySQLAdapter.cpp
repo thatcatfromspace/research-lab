@@ -21,11 +21,18 @@ static thread_local std::mt19937 tl_rng{std::random_device{}()};
 MySQLAdapter::MySQLAdapter(const std::string& host, const std::string& user,
                            const std::string& password, const std::string& dbname,
                            int port)
-    : host_(host), user_(user), password_(password),
-      dbname_(dbname), port_(port), conn_(nullptr) {}
+    : host_(host), user_(user), password_(password), dbname_(dbname), port_(port), conn_(nullptr) {
+}
 
 MySQLAdapter::~MySQLAdapter() {
     disconnect();
+}
+
+std::unique_ptr<DBAdapter> MySQLAdapter::clone_connection() {
+    auto clone = std::make_unique<MySQLAdapter>(host_, user_, password_, dbname_, port_);
+    clone->connect();
+    clone->configure(read_pct_, seed_rows_);
+    return clone;
 }
 
 // ─── connect() ────────────────────────────────────────────────────────────────
@@ -116,33 +123,35 @@ void MySQLAdapter::setup_schema() {
     std::cout << "[MySQL] Seed complete.\n";
 }
 
-// ─── perform_op() ─────────────────────────────────────────────────────────────
-
-void MySQLAdapter::perform_op() {
+void MySQLAdapter::perform_read(int key) {
     if (!conn_) return;
+    char buf[128];
+    int len = snprintf(buf, sizeof(buf), "SELECT val FROM bench_kv WHERE id = %d", key);
+    if (mysql_real_query(conn_, buf, static_cast<unsigned long>(len)) == 0) {
+        MYSQL_RES* res = mysql_store_result(conn_);
+        if (res) mysql_free_result(res);
+    }
+}
 
-    static thread_local std::uniform_int_distribution<int> key_dist;
-    static thread_local std::uniform_int_distribution<int> pct_dist(1, 100);
-    static thread_local std::uniform_int_distribution<int> val_dist(0, 999'999);
+void MySQLAdapter::perform_write(int key, const std::string& value) {
+    if (!conn_) return;
+    // We do REPLACE INTO to handle both insert and update
+    std::string esc_val(value.length() * 2 + 1, '\0');
+    mysql_real_escape_string(conn_, esc_val.data(), value.c_str(), value.length());
+    
+    std::ostringstream oss;
+    oss << "REPLACE INTO bench_kv (id, val) VALUES (" << key << ", '" << esc_val.c_str() << "')";
+    std::string query = oss.str();
+    mysql_real_query(conn_, query.c_str(), query.length());
+}
 
-    int  key = key_dist(tl_rng, std::uniform_int_distribution<int>::param_type{1, seed_rows_});
-    bool is_read = (pct_dist(tl_rng) <= read_pct_);
-
-    char buf[192];
-    int  len;
-
-    if (is_read) {
-        len = snprintf(buf, sizeof(buf),
-                       "SELECT val FROM bench_kv WHERE id = %d", key);
-        if (mysql_real_query(conn_, buf, static_cast<unsigned long>(len)) == 0) {
-            MYSQL_RES* res = mysql_store_result(conn_);
-            if (res) mysql_free_result(res);
-        }
-    } else {
-        len = snprintf(buf, sizeof(buf),
-                       "UPDATE bench_kv SET val = 'upd_%d' WHERE id = %d",
-                       val_dist(tl_rng), key);
-        mysql_real_query(conn_, buf, static_cast<unsigned long>(len));
+void MySQLAdapter::perform_scan(int start_key, int count) {
+    if (!conn_) return;
+    char buf[128];
+    int len = snprintf(buf, sizeof(buf), "SELECT val FROM bench_kv WHERE id >= %d ORDER BY id ASC LIMIT %d", start_key, count);
+    if (mysql_real_query(conn_, buf, static_cast<unsigned long>(len)) == 0) {
+        MYSQL_RES* res = mysql_store_result(conn_);
+        if (res) mysql_free_result(res);
     }
 }
 

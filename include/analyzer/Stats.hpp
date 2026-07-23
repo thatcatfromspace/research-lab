@@ -44,6 +44,10 @@ public:
         return latencies_.size();
     }
 
+    void clear() {
+        latencies_.clear();
+    }
+
 private:
     std::vector<long long> latencies_;
 

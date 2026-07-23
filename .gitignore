@@ -7,3 +7,10 @@ rocksdb_data/
 results_*.json
 
 research_docs/
+plots/
+rocks_1M/
+level_1M/
+venv/
+
+.DS_Store
+paper.*

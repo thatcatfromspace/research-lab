@@ -6,12 +6,28 @@
 #include "analyzer/MetricResult.hpp"
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace analyzer {
 
-struct RunOptions {
+enum class Distribution { UNIFORM, ZIPFIAN };
+
+struct Phase {
     size_t operation_count = 0;   // 0 = use duration
-    size_t duration_seconds = 0; // 0 = use operation count
+    size_t duration_seconds = 0;  // 0 = use operation count
+    
+    // Workload Generation
+    Distribution distribution = Distribution::UNIFORM;
+    int read_pct = 70;
+    int write_pct = 30;
+    int scan_pct = 0;
+};
+
+struct RunOptions {
+    int row_count = 10000;
+    int thread_count = 1;
+    int payload_size = 1024;
+    std::vector<Phase> phases;
 };
 
 class Analyzer {
