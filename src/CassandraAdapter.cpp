@@ -97,23 +97,40 @@ void CassandraAdapter::setup_schema() {
     cass_statement_free(count_stmt);
 
     if (count < seed_rows_) {
-        std::cout << "[Cassandra] Seeding " << seed_rows_ << " rows...\n";
-        const char* insert_query = "INSERT INTO bench.bench_kv (id, val) VALUES (?, ?)";
-        CassStatement* insert_stmt = cass_statement_new(insert_query, 2);
+        std::cout << "[Cassandra] Seeding " << seed_rows_ << " rows (async pipelined)...\n";
         
+        // Prepare insert statement for fast execution
+        const char* insert_query = "INSERT INTO bench.bench_kv (id, val) VALUES (?, ?)";
+        CassFuture* prepare_future = cass_session_prepare(session_, insert_query);
+        cass_future_wait(prepare_future);
+        check_future(prepare_future, "Prepare insert failed during seeding");
+        const CassPrepared* prepared = cass_future_get_prepared(prepare_future);
+        cass_future_free(prepare_future);
+
+        constexpr std::size_t ASYNC_BATCH = 2000;
+        std::vector<CassFuture*> pending_futures;
+        pending_futures.reserve(ASYNC_BATCH);
+
         for (int i = 1; i <= seed_rows_; ++i) {
             std::string v = "seed_" + std::to_string(i);
+            CassStatement* insert_stmt = cass_prepared_bind(prepared);
             cass_statement_bind_int32(insert_stmt, 0, i);
             cass_statement_bind_string(insert_stmt, 1, v.c_str());
             
             CassFuture* fut = cass_session_execute(session_, insert_stmt);
-            cass_future_wait(fut);
-            check_future(fut, "Insert failed during seeding");
-            cass_future_free(fut);
-            
-            cass_statement_reset_parameters(insert_stmt, 2);
+            cass_statement_free(insert_stmt);
+            pending_futures.push_back(fut);
+
+            if (pending_futures.size() >= ASYNC_BATCH || i == seed_rows_) {
+                for (auto f : pending_futures) {
+                    cass_future_wait(f);
+                    check_future(f, "Insert failed during seeding");
+                    cass_future_free(f);
+                }
+                pending_futures.clear();
+            }
         }
-        cass_statement_free(insert_stmt);
+        cass_prepared_free(prepared);
         std::cout << "[Cassandra] Seed complete.\n";
     } else {
         std::cout << "[Cassandra] Already has " << count << " rows -- skipping seed.\n";
