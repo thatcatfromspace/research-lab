@@ -8,6 +8,8 @@
 #include <mysql/mysql.h>
 #endif
 
+#include "analyzer/Analyzer.hpp" 
+
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
