@@ -83,18 +83,18 @@ void CassandraAdapter::setup_schema() {
     // 3. Seed checking via primary key lookup (avoids expensive full-table COUNT scan)
     const char* check_query = "SELECT val FROM bench.bench_kv WHERE id = 1";
     CassStatement* check_stmt = cass_statement_new(check_query, 0);
-    CassFuture* check_future = cass_session_execute(session_, check_stmt);
-    cass_future_wait(check_future);
+    CassFuture* check_fut = cass_session_execute(session_, check_stmt);
+    cass_future_wait(check_fut);
     
     bool data_exists = false;
-    if (cass_future_error_code(check_future) == CASS_OK) {
-        const CassResult* res = cass_future_get_result(check_future);
+    if (cass_future_error_code(check_fut) == CASS_OK) {
+        const CassResult* res = cass_future_get_result(check_fut);
         if (res && cass_result_row_count(res) > 0) {
             data_exists = true;
         }
         if (res) cass_result_free(res);
     }
-    cass_future_free(check_future);
+    cass_future_free(check_fut);
     cass_statement_free(check_stmt);
 
     if (!data_exists) {
