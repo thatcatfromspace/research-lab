@@ -15,7 +15,7 @@ def load_data(results_dir):
             db_name = file.split("results_")[-1].split(".json")[0]
             if "_run" in db_name:
                 db_name = db_name.split("_run")[0]
-            
+
             row = {
                 "database": db_name,
                 "latency_avg": j.get("latency_stats", {}).get("avg_us", 0),
@@ -28,7 +28,7 @@ def load_data(results_dir):
                 "space_amp": j.get("amplification", {}).get("space_amp", 0)
             }
             data.append(row)
-            
+
             for pt in j.get("time_series", []):
                 ts_row = {
                     "database": db_name,
@@ -45,17 +45,17 @@ def load_telemetry(results_dir):
         db_name = file.split("telemetry_")[-1].split(".csv")[0]
         if "_run" in db_name:
             db_name = db_name.split("_run")[0]
-            
+
         try:
             # dstat outputs headers around line 6, but we can search for "time" or just skip 5 rows
             df = pd.read_csv(file, skiprows=5, on_bad_lines='skip')
-            
+
             # CPU usage = 100 - idle. 'idl' is usually the 4th column in CPU stats
             if 'idl' in df.columns:
                 cpu_usage = 100 - pd.to_numeric(df['idl'], errors='coerce')
             else:
                 cpu_usage = 100 - pd.to_numeric(df.iloc[:, 3], errors='coerce')
-                
+
             for i, val in enumerate(cpu_usage):
                 if pd.notna(val):
                     data.append({
@@ -65,15 +65,15 @@ def load_telemetry(results_dir):
                     })
         except Exception as e:
             print(f"Failed to parse {file}: {e}")
-            
+
     return pd.DataFrame(data)
 
 def plot_metrics(df, output_dir):
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Prettify database names
     df['database'] = df['database'].str.title()
-    
+
     sns.set_theme(style="whitegrid", font_scale=1.2)
     sns.set_palette("husl")
 
@@ -88,10 +88,10 @@ def plot_metrics(df, output_dir):
     for col, ylabel, title in metrics:
         if col in df.columns and df[col].sum() > 0:
             plt.figure(figsize=(12, 7))
-            
+
             # Create bar plot (Seaborn handles error bars automatically for multiple runs via capsize and errorbar parameters)
             ax = sns.barplot(data=df, x="database", y=col, hue="database", palette="husl", dodge=False, legend=False, errorbar='sd', capsize=0.1)
-            
+
             # Add labels on top of bars
             for p in ax.patches:
                 height = p.get_height()
@@ -103,16 +103,16 @@ def plot_metrics(df, output_dir):
                                 textcoords='offset points',
                                 fontweight='bold',
                                 fontsize=11)
-            
+
             # Styling tweaks
             plt.title(f"{title} Comparison", pad=20, fontweight='bold', fontsize=16)
             plt.ylabel(ylabel, fontweight='bold')
             plt.xlabel("Database Engine", fontweight='bold')
-            
+
             # Clean up axes
             sns.despine(left=True, bottom=True)
             plt.grid(axis='x') # Remove vertical grid lines
-            
+
             plt.tight_layout()
             plt.savefig(os.path.join(output_dir, f"{col}.png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -121,11 +121,11 @@ def plot_metrics(df, output_dir):
 def plot_time_series(df_ts, output_dir):
     if df_ts.empty:
         return
-        
+
     os.makedirs(output_dir, exist_ok=True)
     df_ts['database'] = df_ts['database'].str.title()
     sns.set_theme(style="whitegrid", font_scale=1.2)
-    
+
     # Plot Throughput over Time
     plt.figure(figsize=(14, 6))
     sns.lineplot(data=df_ts, x="elapsed_time_s", y="throughput", hue="database", palette="husl", linewidth=2.5)
@@ -161,7 +161,7 @@ def plot_telemetry(df_tel, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     df_tel['database'] = df_tel['database'].str.title()
     sns.set_theme(style="whitegrid", font_scale=1.2)
-    
+
     plt.figure(figsize=(14, 6))
     sns.lineplot(data=df_tel, x="elapsed_time_s", y="cpu_usage", hue="database", palette="husl", linewidth=2.5)
     plt.title("CPU Usage Over Time (Workload Shifter)", pad=20, fontweight='bold', fontsize=16)
@@ -183,14 +183,14 @@ if __name__ == "__main__":
 
     df, df_ts = load_data(args.results_dir)
     df_tel = load_telemetry(args.results_dir)
-    
+
     if not df.empty:
         print(f"Loaded benchmark data for {df['database'].nunique()} databases across {len(df) // df['database'].nunique()} runs.")
         plot_metrics(df, args.output_dir)
         plot_time_series(df_ts, args.output_dir)
     else:
         print("No result JSON files found.")
-        
+
     if not df_tel.empty:
         print(f"Loaded telemetry data for {df_tel['database'].nunique()} databases.")
         plot_telemetry(df_tel, args.output_dir)

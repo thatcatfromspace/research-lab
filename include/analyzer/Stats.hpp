@@ -29,7 +29,7 @@ public:
         s.avg = sum / latencies_.size();
 
         // Calculate percentiles
-        // We sort the vector to get exact percentiles. 
+        // We sort the vector to get exact percentiles.
         // Note: This modifies the internal storage order.
         std::sort(latencies_.begin(), latencies_.end());
 

@@ -32,7 +32,7 @@ RocksDBAdapter::~RocksDBAdapter() {
 void RocksDBAdapter::connect() {
     rocksdb::Options options;
     options.create_if_missing = true;
-    
+
     // Optimize for fast SSD/Local storage
     options.IncreaseParallelism();
     options.OptimizeLevelStyleCompaction();
@@ -59,20 +59,20 @@ void RocksDBAdapter::configure(int read_pct, int row_count) {
 void RocksDBAdapter::setup_schema() {
     std::string value;
     rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), "1", &value);
-    
+
     if (s.ok()) {
         std::cout << "[RocksDB] Data already exists at " << db_path_ << " -- skipping seed.\n";
         return;
     }
 
     std::cout << "[RocksDB] Seeding " << seed_rows_ << " keys into " << db_path_ << "...\n";
-    
+
     rocksdb::WriteBatch batch;
     for (int i = 1; i <= seed_rows_; ++i) {
         std::string k = std::to_string(i);
         std::string v = "seed_" + k;
         batch.Put(k, v);
-        
+
         // Write in batches of 1000 to avoid massive memory usage during init
         if (i % 1000 == 0) {
             db_->Write(rocksdb::WriteOptions(), &batch);
@@ -80,29 +80,32 @@ void RocksDBAdapter::setup_schema() {
         }
     }
     db_->Write(rocksdb::WriteOptions(), &batch);
-    
+
     std::cout << "[RocksDB] Seed complete.\n";
 }
 
-void RocksDBAdapter::perform_read(int key) {
-    if (!db_) return;
+bool RocksDBAdapter::perform_read(int key) {
+    if (!db_) return false;
     std::string val;
-    db_->Get(rocksdb::ReadOptions(), std::to_string(key), &val);
+    auto s = db_->Get(rocksdb::ReadOptions(), std::to_string(key), &val);
+    return s.ok() || s.IsNotFound();
 }
 
-void RocksDBAdapter::perform_write(int key, const std::string& value) {
-    if (!db_) return;
-    db_->Put(rocksdb::WriteOptions(), std::to_string(key), value);
+bool RocksDBAdapter::perform_write(int key, const std::string& value) {
+    if (!db_) return false;
+    return db_->Put(rocksdb::WriteOptions(), std::to_string(key), value).ok();
 }
 
-void RocksDBAdapter::perform_scan(int start_key, int count) {
-    if (!db_) return;
+bool RocksDBAdapter::perform_scan(int start_key, int count) {
+    if (!db_) return false;
     rocksdb::Iterator* it = db_->NewIterator(rocksdb::ReadOptions());
     it->Seek(std::to_string(start_key));
     for (int i = 0; i < count && it->Valid(); ++i) {
         it->Next();
     }
+    bool ok = it->status().ok();
     delete it;
+    return ok;
 }
 
 MetricMap RocksDBAdapter::collect_metrics() {
@@ -134,11 +137,11 @@ MetricMap RocksDBAdapter::collect_metrics() {
     // 2. Space Amplification
     get_prop("rocksdb.total-sst-files-size",       "rocksdb.total_sst_bytes");
     get_prop("rocksdb.estimate-live-data-size",    "rocksdb.live_data_bytes");
-    
+
     // 3. Write Amplification (Compaction stats)
     get_prop("rocksdb.compaction-pending",          "rocksdb.compaction_pending");
     get_prop("rocksdb.background-errors",           "rocksdb.bg_errors");
-    
+
     // Note: Compaction bytes are cumulative since DB open
     // They give a clear picture of Write Amplification in LSM
     get_prop("rocksdb.actual-delayed-write-rate",   "rocksdb.write_stall_rate");

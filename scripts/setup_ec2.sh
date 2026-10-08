@@ -80,7 +80,7 @@ if [ -n "$NVME_DEV" ]; then
 
     # Redirect DB data dirs to NVMe using mount --bind (avoids AppArmor symlink permission errors)
     sudo mkdir -p /mnt/nvme/mysql /mnt/nvme/postgresql /mnt/nvme/cassandra
-    
+
     # Stop services before relocating data dirs
     sudo systemctl stop mysql postgresql cassandra || true
 
@@ -98,7 +98,7 @@ if [ -n "$NVME_DEV" ]; then
                 sudo rm -rf "${service_dir:?}"/*
             fi
             sudo mount --bind "$nvme_target" "$service_dir"
-            
+
             # Persist bind mount in /etc/fstab
             if ! grep -q "$service_dir" /etc/fstab; then
                 echo "$nvme_target $service_dir none bind 0 0" | sudo tee -a /etc/fstab

@@ -72,7 +72,7 @@ void PostgreSQLAdapter::setup_schema() {
     PGresult* res = PQexec(conn_,
         "CREATE TABLE IF NOT EXISTS bench_kv ("
         "  id  INT         NOT NULL,"
-        "  val VARCHAR(255) NOT NULL,"
+        "  val TEXT NOT NULL,"
         "  PRIMARY KEY (id)"
         ")");
     check(res, PGRES_COMMAND_OK, "CREATE TABLE bench_kv", conn_);
@@ -117,39 +117,44 @@ void PostgreSQLAdapter::setup_schema() {
     PQclear(res);
 
     res = PQprepare(conn_, STMT_WRITE,
-                    "UPDATE bench_kv SET val = $1 WHERE id = $2",
+                    "INSERT INTO bench_kv (id, val) VALUES ($2, $1) "
+                    "ON CONFLICT (id) DO UPDATE SET val = EXCLUDED.val",
                     2, nullptr);
     check(res, PGRES_COMMAND_OK, "PQprepare bench_write", conn_);
     PQclear(res);
 }
 
-void PostgreSQLAdapter::perform_read(int key) {
-    if (!conn_) return;
+bool PostgreSQLAdapter::perform_read(int key) {
+    if (!conn_) return false;
     char key_buf[24];
     snprintf(key_buf, sizeof(key_buf), "%d", key);
     const char* params[1] = { key_buf };
     PGresult* res = PQexecPrepared(conn_, STMT_READ, 1, params, nullptr, nullptr, 0);
+    bool ok = res && PQresultStatus(res) == PGRES_TUPLES_OK;
     if (res) PQclear(res);
+    return ok;
 }
 
-void PostgreSQLAdapter::perform_write(int key, const std::string& value) {
-    if (!conn_) return;
+bool PostgreSQLAdapter::perform_write(int key, const std::string& value) {
+    if (!conn_) return false;
     char key_buf[24];
     snprintf(key_buf, sizeof(key_buf), "%d", key);
-    
-    // In setup_schema, STMT_WRITE is an UPDATE. To handle both, we might want to do UPSERT
-    // For now we'll just execute the UPDATE.
+
     const char* params[2] = { value.c_str(), key_buf };
     PGresult* res = PQexecPrepared(conn_, STMT_WRITE, 2, params, nullptr, nullptr, 0);
+    bool ok = res && PQresultStatus(res) == PGRES_COMMAND_OK;
     if (res) PQclear(res);
+    return ok;
 }
 
-void PostgreSQLAdapter::perform_scan(int start_key, int count) {
-    if (!conn_) return;
+bool PostgreSQLAdapter::perform_scan(int start_key, int count) {
+    if (!conn_) return false;
     char query[256];
     snprintf(query, sizeof(query), "SELECT val FROM bench_kv WHERE id >= %d ORDER BY id ASC LIMIT %d", start_key, count);
     PGresult* res = PQexec(conn_, query);
+    bool ok = res && PQresultStatus(res) == PGRES_TUPLES_OK;
     if (res) PQclear(res);
+    return ok;
 }
 
 // ─── collect_metrics() ────────────────────────────────────────────────────────
@@ -218,13 +223,13 @@ MetricMap PostgreSQLAdapter::collect_metrics() {
     PQclear(res);
 
     // 4. Space Footprint & Table Stats
-    const char* table_query = 
+    const char* table_query =
         "SELECT pg_table_size('bench_kv'), "
         "       pg_total_relation_size('bench_kv'), "
         "       n_tup_upd, n_tup_ins "
         "FROM pg_stat_user_tables "
         "WHERE relname = 'bench_kv'";
-        
+
     res = PQexec(conn_, table_query);
     if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
         auto get = [&](int col) -> MetricValue {

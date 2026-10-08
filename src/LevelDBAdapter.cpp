@@ -32,7 +32,7 @@ LevelDBAdapter::~LevelDBAdapter() {
 void LevelDBAdapter::connect() {
     leveldb::Options options;
     options.create_if_missing = true;
-    
+
     leveldb::DB* temp_db = nullptr;
     leveldb::Status status = leveldb::DB::Open(options, db_path_, &temp_db);
     if (!status.ok()) {
@@ -55,49 +55,52 @@ void LevelDBAdapter::configure(int read_pct, int row_count) {
 void LevelDBAdapter::setup_schema() {
     std::string value;
     leveldb::Status s = db_->Get(leveldb::ReadOptions(), "1", &value);
-    
+
     if (s.ok()) {
         std::cout << "[LevelDB] Data already exists at " << db_path_ << " -- skipping seed.\n";
         return;
     }
 
     std::cout << "[LevelDB] Seeding " << seed_rows_ << " keys into " << db_path_ << "...\n";
-    
+
     leveldb::WriteBatch batch;
     for (int i = 1; i <= seed_rows_; ++i) {
         std::string k = std::to_string(i);
         std::string v = "seed_" + k;
         batch.Put(k, v);
-        
+
         if (i % 1000 == 0) {
             db_->Write(leveldb::WriteOptions(), &batch);
             batch.Clear();
         }
     }
     db_->Write(leveldb::WriteOptions(), &batch);
-    
+
     std::cout << "[LevelDB] Seed complete.\n";
 }
 
-void LevelDBAdapter::perform_read(int key) {
-    if (!db_) return;
+bool LevelDBAdapter::perform_read(int key) {
+    if (!db_) return false;
     std::string val;
-    db_->Get(leveldb::ReadOptions(), std::to_string(key), &val);
+    auto s = db_->Get(leveldb::ReadOptions(), std::to_string(key), &val);
+    return s.ok() || s.IsNotFound();
 }
 
-void LevelDBAdapter::perform_write(int key, const std::string& value) {
-    if (!db_) return;
-    db_->Put(leveldb::WriteOptions(), std::to_string(key), value);
+bool LevelDBAdapter::perform_write(int key, const std::string& value) {
+    if (!db_) return false;
+    return db_->Put(leveldb::WriteOptions(), std::to_string(key), value).ok();
 }
 
-void LevelDBAdapter::perform_scan(int start_key, int count) {
-    if (!db_) return;
+bool LevelDBAdapter::perform_scan(int start_key, int count) {
+    if (!db_) return false;
     leveldb::Iterator* it = db_->NewIterator(leveldb::ReadOptions());
     it->Seek(std::to_string(start_key));
     for (int i = 0; i < count && it->Valid(); ++i) {
         it->Next();
     }
+    bool ok = it->status().ok();
     delete it;
+    return ok;
 }
 
 MetricMap LevelDBAdapter::collect_metrics() {
@@ -107,7 +110,7 @@ MetricMap LevelDBAdapter::collect_metrics() {
     auto get_prop = [&](const std::string& prop, const std::string& metric_name) {
         std::string val;
         if (db_->GetProperty(prop, &val)) {
-            // LevelDB prop strings are often formatted info, 
+            // LevelDB prop strings are often formatted info,
             // only 'approximate-memory-usage' is a pure numeric string.
             if (prop == "leveldb.approximate-memory-usage") {
                 try {

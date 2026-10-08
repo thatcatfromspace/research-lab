@@ -22,10 +22,10 @@ public:
         std::uniform_real_distribution<double> dist(0.0, 1.0);
         double u = dist(rng_);
         double uz = u * zeta_n_;
-        
+
         if (uz < 1.0) return 0;
         if (uz < 1.0 + std::pow(0.5, theta_)) return 1;
-        
+
         int ret = static_cast<int>(max_val_ * std::pow(eta_ * u - eta_ + 1.0, alpha_));
         if (ret >= max_val_) ret = max_val_ - 1;
         return ret;

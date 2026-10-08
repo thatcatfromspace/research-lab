@@ -1,4 +1,4 @@
-#include "analyzer/MySQLAdapter.hpp" 
+#include "analyzer/MySQLAdapter.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -75,7 +75,7 @@ void MySQLAdapter::setup_schema() {
     const char* create_sql =
         "CREATE TABLE IF NOT EXISTS bench_kv ("
         "  id  INT          NOT NULL,"
-        "  val VARCHAR(255) NOT NULL,"
+        "  val LONGTEXT NOT NULL,"
         "  PRIMARY KEY (id)"
         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 
@@ -122,36 +122,39 @@ void MySQLAdapter::setup_schema() {
     std::cout << "[MySQL] Seed complete.\n";
 }
 
-void MySQLAdapter::perform_read(int key) {
-    if (!conn_) return;
+bool MySQLAdapter::perform_read(int key) {
+    if (!conn_) return false;
     char buf[128];
     int len = snprintf(buf, sizeof(buf), "SELECT val FROM bench_kv WHERE id = %d", key);
     if (mysql_real_query(conn_, buf, static_cast<unsigned long>(len)) == 0) {
         MYSQL_RES* res = mysql_store_result(conn_);
-        if (res) mysql_free_result(res);
+        if (res) { mysql_free_result(res); return true; }
     }
+    return false;
 }
 
-void MySQLAdapter::perform_write(int key, const std::string& value) {
-    if (!conn_) return;
+bool MySQLAdapter::perform_write(int key, const std::string& value) {
+    if (!conn_) return false;
     // We do REPLACE INTO to handle both insert and update
     std::string esc_val(value.length() * 2 + 1, '\0');
-    mysql_real_escape_string(conn_, esc_val.data(), value.c_str(), value.length());
-    
+    unsigned long escaped_len = mysql_real_escape_string(conn_, esc_val.data(), value.c_str(), value.length());
+    esc_val.resize(escaped_len);
+
     std::ostringstream oss;
-    oss << "REPLACE INTO bench_kv (id, val) VALUES (" << key << ", '" << esc_val.c_str() << "')";
+    oss << "REPLACE INTO bench_kv (id, val) VALUES (" << key << ", '" << esc_val << "')";
     std::string query = oss.str();
-    mysql_real_query(conn_, query.c_str(), query.length());
+    return mysql_real_query(conn_, query.c_str(), query.length()) == 0;
 }
 
-void MySQLAdapter::perform_scan(int start_key, int count) {
-    if (!conn_) return;
+bool MySQLAdapter::perform_scan(int start_key, int count) {
+    if (!conn_) return false;
     char buf[128];
     int len = snprintf(buf, sizeof(buf), "SELECT val FROM bench_kv WHERE id >= %d ORDER BY id ASC LIMIT %d", start_key, count);
     if (mysql_real_query(conn_, buf, static_cast<unsigned long>(len)) == 0) {
         MYSQL_RES* res = mysql_store_result(conn_);
-        if (res) mysql_free_result(res);
+        if (res) { mysql_free_result(res); return true; }
     }
+    return false;
 }
 
 // ─── collect_metrics() ────────────────────────────────────────────────────────
@@ -198,11 +201,11 @@ MetricMap MySQLAdapter::collect_metrics() {
     }
 
     // 2. Collect Table Size metrics (Space Amplification footprint)
-    const char* size_query = 
+    const char* size_query =
         "SELECT data_length, index_length "
         "FROM information_schema.tables "
         "WHERE table_schema = 'bench' AND table_name = 'bench_kv'";
-        
+
     if (mysql_query(conn_, size_query) == 0) {
         MYSQL_RES* res = mysql_store_result(conn_);
         if (res) {

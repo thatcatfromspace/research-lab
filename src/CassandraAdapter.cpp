@@ -13,8 +13,8 @@ static thread_local std::mt19937 tl_rng{std::random_device{}()};
 // ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 CassandraAdapter::CassandraAdapter(const std::string& contact_points)
-    : contact_points_(contact_points), 
-      cluster_(nullptr), 
+    : contact_points_(contact_points),
+      cluster_(nullptr),
       session_(nullptr),
       prepared_read_(nullptr),
       prepared_write_(nullptr) {}
@@ -44,14 +44,14 @@ static void check_future(CassFuture* future, const std::string& msg) {
 void CassandraAdapter::connect() {
     cluster_ = cass_cluster_new();
     session_ = cass_session_new();
-    
+
     cass_cluster_set_contact_points(cluster_, contact_points_.c_str());
     cass_cluster_set_num_threads_io(cluster_, 2); // Local benchmark doesn't need many
-    
+
     CassFuture* connect_future = cass_session_connect(session_, cluster_);
     check_future(connect_future, "Cassandra connect failed");
     cass_future_free(connect_future);
-    
+
     setup_schema();
 }
 
@@ -85,7 +85,7 @@ void CassandraAdapter::setup_schema() {
     CassStatement* check_stmt = cass_statement_new(check_query, 0);
     CassFuture* check_fut = cass_session_execute(session_, check_stmt);
     cass_future_wait(check_fut);
-    
+
     bool data_exists = false;
     if (cass_future_error_code(check_fut) == CASS_OK) {
         const CassResult* res = cass_future_get_result(check_fut);
@@ -99,7 +99,7 @@ void CassandraAdapter::setup_schema() {
 
     if (!data_exists) {
         std::cout << "[Cassandra] Seeding " << seed_rows_ << " rows (async pipelined)...\n";
-        
+
         // Prepare insert statement for fast execution
         const char* insert_query = "INSERT INTO bench.bench_kv (id, val) VALUES (?, ?)";
         CassFuture* prepare_future = cass_session_prepare(session_, insert_query);
@@ -117,7 +117,7 @@ void CassandraAdapter::setup_schema() {
             CassStatement* insert_stmt = cass_prepared_bind(prepared);
             cass_statement_bind_int32(insert_stmt, 0, i);
             cass_statement_bind_string(insert_stmt, 1, v.c_str());
-            
+
             CassFuture* fut = cass_session_execute(session_, insert_stmt);
             cass_statement_free(insert_stmt);
             pending_futures.push_back(fut);
@@ -151,38 +151,44 @@ void CassandraAdapter::setup_schema() {
     prepared_write_ = prepare("UPDATE bench.bench_kv SET val = ? WHERE id = ?");
 }
 
-void CassandraAdapter::perform_read(int key) {
-    if (!session_) return;
+bool CassandraAdapter::perform_read(int key) {
+    if (!session_) return false;
     CassStatement* statement = cass_prepared_bind(prepared_read_);
     cass_statement_bind_int32(statement, 0, key);
     CassFuture* future = cass_session_execute(session_, statement);
     cass_future_wait(future);
+    bool ok = cass_future_error_code(future) == CASS_OK;
     cass_future_free(future);
     cass_statement_free(statement);
+    return ok;
 }
 
-void CassandraAdapter::perform_write(int key, const std::string& value) {
-    if (!session_) return;
+bool CassandraAdapter::perform_write(int key, const std::string& value) {
+    if (!session_) return false;
     CassStatement* statement = cass_prepared_bind(prepared_write_);
     cass_statement_bind_string(statement, 0, value.c_str());
     cass_statement_bind_int32(statement, 1, key);
     CassFuture* future = cass_session_execute(session_, statement);
     cass_future_wait(future);
+    bool ok = cass_future_error_code(future) == CASS_OK;
     cass_future_free(future);
     cass_statement_free(statement);
+    return ok;
 }
 
-void CassandraAdapter::perform_scan(int start_key, int count) {
+bool CassandraAdapter::perform_scan(int start_key, int count) {
     // Cassandra doesn't do great with sequential range scans without partition keys,
     // but we can simulate it with multiple reads or an IN clause if prepared,
     // or just execute a raw query.
-    if (!session_) return;
+    if (!session_) return false;
     std::string query = "SELECT val FROM bench.bench_kv WHERE id >= " + std::to_string(start_key) + " LIMIT " + std::to_string(count) + " ALLOW FILTERING";
     CassStatement* statement = cass_statement_new(query.c_str(), 0);
     CassFuture* future = cass_session_execute(session_, statement);
     cass_future_wait(future);
+    bool ok = cass_future_error_code(future) == CASS_OK;
     cass_future_free(future);
     cass_statement_free(statement);
+    return ok;
 }
 
 MetricMap CassandraAdapter::collect_metrics() {
@@ -198,14 +204,14 @@ MetricMap CassandraAdapter::collect_metrics() {
     metrics["cassandra.driver_total_connections"]   = static_cast<long long>(cass_metrics.stats.total_connections);
 
     // 2. Server-side Disk Usage (Cassandra 4.0+)
-    const char* disk_query = 
+    const char* disk_query =
         "SELECT mebibytes "
         "FROM system_views.disk_usage "
         "WHERE keyspace_name = 'bench' AND table_name = 'bench_kv'";
-        
+
     CassStatement* disk_stmt = cass_statement_new(disk_query, 0);
     CassFuture* disk_future = cass_session_execute(session_, disk_stmt);
-    
+
     if (cass_future_error_code(disk_future) == CASS_OK) {
         const CassResult* res = cass_future_get_result(disk_future);
         if (cass_result_row_count(res) > 0) {
@@ -221,11 +227,11 @@ MetricMap CassandraAdapter::collect_metrics() {
     cass_statement_free(disk_stmt);
 
     // 3. Pending Tasks (Compactions)
-    const char* task_query = 
+    const char* task_query =
         "SELECT count(*) "
         "FROM system_views.sstable_tasks "
         "WHERE keyspace_name = 'bench' AND table_name = 'bench_kv'";
-        
+
     CassStatement* task_stmt = cass_statement_new(task_query, 0);
     CassFuture* task_future = cass_session_execute(session_, task_stmt);
     if (cass_future_error_code(task_future) == CASS_OK) {

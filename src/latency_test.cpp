@@ -122,7 +122,7 @@ static Config parse_args(int argc, char* argv[]) {
         else if (cfg.db_type == "cassandra")  cfg.port = 9042;
         else                                  cfg.port = 3306;
     }
-    
+
     if (cfg.dbname.empty()) {
         if      (cfg.db_type == "rocksdb") cfg.dbname = "./rocksdb_data";
         else if (cfg.db_type == "leveldb") cfg.dbname = "./leveldb_data";
@@ -131,6 +131,13 @@ static Config parse_args(int argc, char* argv[]) {
 
     if (cfg.json_out.empty())
         cfg.json_out = "results_" + cfg.db_type + ".json";
+
+    if (cfg.rows <= 0 || cfg.threads <= 0 || cfg.payload_size <= 0 ||
+        cfg.read_pct < 0 || cfg.write_pct < 0 || cfg.scan_pct < 0 ||
+        cfg.read_pct + cfg.write_pct + cfg.scan_pct != 100 ||
+        (cfg.duration == 0 && cfg.ops == 0)) {
+        throw std::invalid_argument("rows, threads, payload and workload length must be positive; operation percentages must total 100");
+    }
 
     return cfg;
 }
@@ -174,7 +181,12 @@ static void print_report(const Config& cfg,
     } else {
         std::cout << "  Operations : " << cfg.ops << "\n";
     }
-    std::cout << "  Read %     : " << cfg.read_pct << "\n";
+    if (cfg.chaos) std::cout << "  Workload   : 10 s 90/10 uniform, 10 s 10/90 zipfian, 10 s 90/10 uniform\n";
+    else std::cout << "  Read %     : " << cfg.read_pct << "\n";
+    const auto& reads = result.reads;
+    const auto& writes = result.writes;
+    const auto& scans = result.scans;
+    std::cout << "  Failures   : " << reads.failed + writes.failed + scans.failed << "\n";
     std::cout << "  Throughput : " << result.throughput_ops << " ops/s\n";
 
     sep();
@@ -273,22 +285,22 @@ int main(int argc, char* argv[]) {
 
     if (cfg.chaos) {
         analyzer::Phase p1, p2, p3;
-        
+
         p1.duration_seconds = 10;
         p1.read_pct = 90;
         p1.write_pct = 10;
         p1.distribution = analyzer::Distribution::UNIFORM;
-        
+
         p2.duration_seconds = 10;
         p2.read_pct = 10;
         p2.write_pct = 90;
         p2.distribution = analyzer::Distribution::ZIPFIAN;
-        
+
         p3.duration_seconds = 10;
         p3.read_pct = 90;
         p3.write_pct = 10;
         p3.distribution = analyzer::Distribution::UNIFORM;
-        
+
         options.phases.push_back(p1);
         options.phases.push_back(p2);
         options.phases.push_back(p3);

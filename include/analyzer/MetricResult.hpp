@@ -24,27 +24,52 @@ struct Snapshot {
 };
 
 struct AmplificationMetrics {
-    double write_amp = 0.0;
-    double read_amp = 0.0;
-    double space_amp = 0.0;
+    std::optional<double> write_amp;
+    std::optional<double> read_amp;
+    std::optional<double> space_amp;
 };
 
 struct TimeSeriesPoint {
     double elapsed_time_s;
     Snapshot latency_stats;
     double throughput_ops;
+    long long attempted = 0;
+    long long successful = 0;
+    long long failed = 0;
+};
+
+struct OperationCounts {
+    long long attempted = 0;
+    long long successful = 0;
+    long long failed = 0;
+};
+
+struct PhaseResult {
+    double start_time_s = 0;
+    double end_time_s = 0;
+    long long attempted = 0;
+    int read_pct = 0;
+    int write_pct = 0;
+    int scan_pct = 0;
+    std::string distribution;
 };
 
 // RunResult contains the final output of an analysis run
 struct RunResult {
     // Client-side observed latency statistics (in microseconds)
     Snapshot latency_stats;
-    
+
     // Throughput (operations per second)
     double throughput_ops;
 
     // Time-series data collected during the run
     std::vector<TimeSeriesPoint> time_series;
+    std::vector<PhaseResult> phases;
+
+    OperationCounts reads, writes, scans;
+    long long logical_write_bytes = 0;
+    MetricMap db_metrics_before;
+    MetricMap process_io_before, process_io_after;
 
     // Standardized amplification metrics (computed from adapter-specific ones if available)
     AmplificationMetrics amplification;

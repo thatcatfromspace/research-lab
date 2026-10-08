@@ -12,7 +12,10 @@ level_1M/
 venv/
 
 .DS_Store
-paper.*
-!paper.tex
 *.pem
-paper*
+paper*.pdf
+paper*.aux
+paper*.log
+paper*.out
+paper*.toc
+paper*.synctex.gz

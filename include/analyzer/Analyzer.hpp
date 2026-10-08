@@ -15,7 +15,7 @@ enum class Distribution { UNIFORM, ZIPFIAN };
 struct Phase {
     size_t operation_count = 0;   // 0 = use duration
     size_t duration_seconds = 0;  // 0 = use operation count
-    
+
     // Workload Generation
     Distribution distribution = Distribution::UNIFORM;
     int read_pct = 70;
