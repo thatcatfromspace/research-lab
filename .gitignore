@@ -13,4 +13,6 @@ venv/
 
 .DS_Store
 paper.*
+!paper.tex
 *.pem
+paper*
