@@ -19,16 +19,19 @@ public:
         // No-op for stub
     }
 
-    void perform_read(int) override {
+    bool perform_read(int) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return true;
     }
 
-    void perform_write(int, const std::string&) override {
+    bool perform_write(int, const std::string&) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return true;
     }
 
-    void perform_scan(int, int) override {
+    bool perform_scan(int, int) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        return true;
     }
 
     MetricMap collect_metrics() override {
