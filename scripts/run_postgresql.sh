@@ -10,6 +10,8 @@ echo "Restarting PostgreSQL Service..."
 echo "================================================="
 sudo systemctl restart postgresql || true
 sleep 5
+sudo -u postgres psql -d bench -v ON_ERROR_STOP=1 \
+    -c "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.bench_kv TO bench"
 
 echo "================================================="
 echo "Benchmarking PostgreSQL (rows=$ROWS, runs=$RUNS, port=$PORT)"

@@ -152,6 +152,7 @@ sudo -u postgres psql -c "CREATE USER bench WITH PASSWORD 'benchpass';" || true
 sudo -u postgres psql -c "CREATE DATABASE bench OWNER bench;" || true
 sudo -u postgres psql -d bench -c "DROP TABLE IF EXISTS bench_kv;" || true
 sudo -u postgres psql -d bench -c "CREATE TABLE IF NOT EXISTS bench_kv (id INT PRIMARY KEY, val TEXT);" || true
+sudo -u postgres psql -d bench -v ON_ERROR_STOP=1 -c "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.bench_kv TO bench;"
 
 # MySQL
 sudo mysql -e "CREATE USER IF NOT EXISTS 'bench'@'localhost' IDENTIFIED BY 'benchpass';"
@@ -168,4 +169,3 @@ echo "================================================="
 echo "Setup Complete! You can now compile the project:"
 echo "mkdir build && cd build && cmake .. && make -j"
 echo "================================================="
-
